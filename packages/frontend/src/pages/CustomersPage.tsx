@@ -175,7 +175,6 @@ export function CustomersPage() {
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Name</Table.Th>
-                <Table.Th>ID</Table.Th>
                 <Table.Th>Status</Table.Th>
                 <Table.Th>Created</Table.Th>
                 <Table.Th />
@@ -185,7 +184,6 @@ export function CustomersPage() {
               {customers.map((customer) => (
                 <Table.Tr key={customer.id}>
                   <Table.Td>{customer.name}</Table.Td>
-                  <Table.Td>{customer.id}</Table.Td>
                   <Table.Td>
                     <Badge color={getCustomerStatusColor(customer.isActive)} variant="light">
                       {customer.isActive ? "Active" : "Inactive"}

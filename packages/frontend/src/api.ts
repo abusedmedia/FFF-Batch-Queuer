@@ -31,12 +31,26 @@ export async function fetchCustomers(): Promise<Customer[]> {
   return payload.customers;
 }
 
-export async function fetchJobs(customerId?: string): Promise<Job[]> {
-  const query = customerId
-    ? `/observability/jobs?customerId=${encodeURIComponent(customerId)}`
-    : "/observability/jobs";
-  const payload = await request<{ jobs: Job[] }>(query);
-  return payload.jobs;
+export async function fetchJobs(input?: {
+  customerId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ jobs: Job[]; total: number }> {
+  const query = new URLSearchParams();
+  if (input?.customerId) {
+    query.set("customerId", input.customerId);
+  }
+  if (input?.limit != null) {
+    query.set("limit", String(input.limit));
+  }
+  if (input?.offset != null) {
+    query.set("offset", String(input.offset));
+  }
+  const queryString = query.toString();
+  const payload = await request<{ jobs: Job[]; total?: number }>(
+    queryString.length > 0 ? `/observability/jobs?${queryString}` : "/observability/jobs",
+  );
+  return { jobs: payload.jobs, total: payload.total ?? payload.jobs.length };
 }
 
 export async function createJob(input: {

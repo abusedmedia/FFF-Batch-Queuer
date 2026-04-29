@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Alert,
   Badge,
   Button,
@@ -6,6 +7,7 @@ import {
   Loader,
   Modal,
   NumberInput,
+  Pagination,
   Select,
   Table,
   TextInput,
@@ -13,6 +15,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { IconRefresh } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { createJob, deleteJob, fetchCustomers, fetchJobs, updateJob } from "../api";
 import type { Customer, Job } from "../types";
@@ -31,9 +34,13 @@ function getStatusColor(status: Job["status"]): string {
 }
 
 export function JobsPage() {
+  const DEFAULT_PAGE_SIZE = 50;
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [totalJobs, setTotalJobs] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpened, setModalOpened] = useState(false);
@@ -52,18 +59,35 @@ export function JobsPage() {
   const [modalSuccessLimit, setModalSuccessLimit] = useState<number>(1);
   const [modalSuccessRetryDelaySeconds, setModalSuccessRetryDelaySeconds] =
     useState<number>(30);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    Promise.all([fetchCustomers(), fetchJobs(selectedCustomerId ?? undefined)])
-      .then(([customerRows, jobRows]) => {
+    Promise.all([
+      fetchCustomers(),
+      fetchJobs({
+        customerId: selectedCustomerId ?? undefined,
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+      }),
+    ])
+      .then(([customerRows, jobsResult]) => {
         setCustomers(customerRows);
-        setJobs(jobRows);
+        setJobs(jobsResult.jobs);
+        setTotalJobs(jobsResult.total);
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [selectedCustomerId]);
+  }, [selectedCustomerId, page, pageSize, reloadToken]);
+
+  const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize));
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   const customerOptions = useMemo(
     () =>
@@ -126,9 +150,9 @@ export function JobsPage() {
     setSaveError(null);
     try {
       await deleteJob(editingJob.id);
-      setJobs((rows) => rows.filter((row) => row.id !== editingJob.id));
       setModalOpened(false);
       setEditingJob(null);
+      setReloadToken((value) => value + 1);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to delete job");
     } finally {
@@ -164,13 +188,10 @@ export function JobsPage() {
           successLimit: modalSuccessLimit,
           successRetryDelaySeconds: modalSuccessRetryDelaySeconds,
         });
-
-        setJobs((rows) => {
-          if (selectedCustomerId && result.job.customerId !== selectedCustomerId) {
-            return rows;
-          }
-          return [result.job, ...rows];
-        });
+        if (!selectedCustomerId || selectedCustomerId === result.job.customerId) {
+          setPage(1);
+          setReloadToken((value) => value + 1);
+        }
         closeModal();
       } else {
         if (!editingJob) return;
@@ -185,10 +206,8 @@ export function JobsPage() {
           successRetryDelaySeconds: modalSuccessRetryDelaySeconds,
         });
 
-        setJobs((rows) =>
-          rows.map((row) => (row.id === result.job.id ? { ...row, ...result.job } : row)),
-        );
         setEditingJob((prev) => (prev ? { ...prev, ...result.job } : prev));
+        setReloadToken((value) => value + 1);
       }
     } catch (err) {
       const message =
@@ -213,13 +232,27 @@ export function JobsPage() {
             clearable
             data={customerOptions}
             value={selectedCustomerId}
-            onChange={setSelectedCustomerId}
+            onChange={(value) => {
+              setSelectedCustomerId(value);
+              setPage(1);
+            }}
             w={{ base: "100%", sm: 280 }}
             maw={360}
           />
-          <Button onClick={openCreateModal} miw={120}>
-            New Job
-          </Button>
+          <Group gap="xs" wrap="nowrap">
+            <ActionIcon
+              variant="default"
+              size="lg"
+              aria-label="Reload jobs"
+              onClick={() => setReloadToken((value) => value + 1)}
+              disabled={loading}
+            >
+              <IconRefresh size={18} stroke={1.5} />
+            </ActionIcon>
+            <Button onClick={openCreateModal} miw={120}>
+              New Job
+            </Button>
+          </Group>
         </Group>
       </Group>
       {loading && <Loader />}
@@ -228,40 +261,60 @@ export function JobsPage() {
         <Text c="dimmed">No jobs found.</Text>
       )}
       {!loading && !error && jobs.length > 0 && (
-        <Table.ScrollContainer minWidth={760}>
-          <Table striped highlightOnHover withTableBorder>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Customer</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th>Attempts</Table.Th>
-                <Table.Th>Error Attempts</Table.Th>
-                <Table.Th>Edit</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {jobs.map((job) => (
-                <Table.Tr key={job.id}>
-                  <Table.Td>{job.name}</Table.Td>
-                  <Table.Td>{job.customerName}</Table.Td>
-                  <Table.Td>
-                    <Badge color={getStatusColor(job.status)} variant="light">
-                      {job.status}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>{job.attempts}</Table.Td>
-                  <Table.Td>{job.errorAttempts}</Table.Td>
-                  <Table.Td>
-                    <Button variant="light" onClick={() => openEditModal(job)}>
-                      Edit
-                    </Button>
-                  </Table.Td>
+        <>
+          <Table.ScrollContainer minWidth={760}>
+            <Table striped highlightOnHover withTableBorder>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th>Customer</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th>Attempts</Table.Th>
+                  <Table.Th>Error Attempts</Table.Th>
+                  <Table.Th>Edit</Table.Th>
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
+              </Table.Thead>
+              <Table.Tbody>
+                {jobs.map((job) => (
+                  <Table.Tr key={job.id}>
+                    <Table.Td>{job.name}</Table.Td>
+                    <Table.Td>{job.customerName}</Table.Td>
+                    <Table.Td>
+                      <Badge color={getStatusColor(job.status)} variant="light">
+                        {job.status}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>{job.attempts}</Table.Td>
+                    <Table.Td>{job.errorAttempts}</Table.Td>
+                    <Table.Td>
+                      <Button variant="light" onClick={() => openEditModal(job)}>
+                        Edit
+                      </Button>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+          <Group justify="space-between" mt="md" wrap="wrap">
+            <Text size="sm" c="dimmed">
+              Showing {jobs.length} of {totalJobs} jobs
+            </Text>
+            <Group wrap="wrap" justify="flex-end">
+              <Select
+                data={["25", "50", "100", "200"]}
+                value={String(pageSize)}
+                onChange={(value) => {
+                  const parsed = Number(value ?? DEFAULT_PAGE_SIZE);
+                  setPageSize(Number.isFinite(parsed) ? parsed : DEFAULT_PAGE_SIZE);
+                  setPage(1);
+                }}
+                w={96}
+              />
+              <Pagination value={page} onChange={setPage} total={totalPages} />
+            </Group>
+          </Group>
+        </>
       )}
 
       <Modal

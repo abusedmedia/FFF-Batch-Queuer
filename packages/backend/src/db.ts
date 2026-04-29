@@ -172,6 +172,37 @@ export async function listAllJobs(
   return result.results ?? [];
 }
 
+export async function countAllJobs(
+  db: D1Database,
+  opts: Omit<ListAllJobsOptions, "limit" | "offset">,
+): Promise<number> {
+  const clauses: string[] = [];
+  const binds: unknown[] = [];
+  if (opts.customerId) {
+    clauses.push("j.customer_id = ?");
+    binds.push(opts.customerId);
+  }
+  if (opts.status) {
+    clauses.push("j.status = ?");
+    binds.push(opts.status);
+  }
+  if (opts.name) {
+    clauses.push("j.name = ?");
+    binds.push(opts.name);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const result = await db
+    .prepare(
+      `SELECT COUNT(*) AS total
+       FROM jobs j
+       JOIN customers c ON c.id = j.customer_id
+       ${where}`,
+    )
+    .bind(...binds)
+    .first<{ total: number }>();
+  return result?.total ?? 0;
+}
+
 export async function updateJobForObservability(
   db: D1Database,
   id: string,

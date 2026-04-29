@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
 import {
+  countAllJobs,
   createCustomer,
   deleteJobById,
   deleteCustomerWithJobs,
@@ -357,15 +358,23 @@ app.get("/observability/jobs", async (c) => {
     );
   }
 
+  const customerId = c.req.query("customerId") ?? undefined;
+  const filters = {
+    customerId,
+    status: parsed.data.status,
+    name: parsed.data.name,
+  };
   const rows = await listAllJobs(c.env.DB, {
-    ...parsed.data,
-    customerId: c.req.query("customerId") ?? undefined,
+    ...filters,
+    limit: parsed.data.limit,
+    offset: parsed.data.offset,
   });
+  const total = await countAllJobs(c.env.DB, filters);
   const jobs: SerializedJobWithCustomer[] = rows.map((row) => ({
     ...serialize(row),
     customerName: row.customer_name,
   }));
-  return c.json({ jobs });
+  return c.json({ jobs, total });
 });
 
 app.post("/observability/jobs", async (c) => {
