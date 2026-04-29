@@ -51,6 +51,25 @@ export async function insertJob(
   return row;
 }
 
+export async function hasResumableJobWithSameName(
+  db: D1Database,
+  customerId: string,
+  name: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1
+       FROM jobs
+       WHERE customer_id = ?
+         AND name = ?
+         AND status IN ('pending', 'running')
+       LIMIT 1`,
+    )
+    .bind(customerId, name)
+    .first<{ 1: number }>();
+  return row != null;
+}
+
 export async function getJob(
   db: D1Database,
   id: string,

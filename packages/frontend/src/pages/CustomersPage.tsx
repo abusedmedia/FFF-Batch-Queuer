@@ -1,5 +1,6 @@
 import {
   Alert,
+  Badge,
   Button,
   Checkbox,
   Group,
@@ -23,6 +24,10 @@ import type { Customer } from "../types";
 
 function formatDate(timestamp: number): string {
   return new Date(timestamp).toLocaleString();
+}
+
+function getCustomerStatusColor(isActive: boolean): string {
+  return isActive ? "green" : "gray";
 }
 
 export function CustomersPage() {
@@ -178,7 +183,11 @@ export function CustomersPage() {
               <Table.Tr key={customer.id}>
                 <Table.Td>{customer.name}</Table.Td>
                 <Table.Td>{customer.id}</Table.Td>
-                <Table.Td>{customer.isActive ? "Active" : "Inactive"}</Table.Td>
+                <Table.Td>
+                  <Badge color={getCustomerStatusColor(customer.isActive)} variant="light">
+                    {customer.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                </Table.Td>
                 <Table.Td>{formatDate(customer.createdAt)}</Table.Td>
                 <Table.Td>
                   <Button variant="light" size="xs" onClick={() => openEditModal(customer)}>

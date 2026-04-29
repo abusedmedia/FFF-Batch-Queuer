@@ -8,6 +8,7 @@ import {
   getCustomerById,
   getActiveCustomerByTokenHash,
   getJob,
+  hasResumableJobWithSameName,
   insertJob,
   listAllJobs,
   listCustomers,
@@ -389,6 +390,21 @@ app.post("/observability/jobs", async (c) => {
   const customer = await getCustomerById(c.env.DB, parsed.data.customerId);
   if (!customer) return c.json({ error: "customer not found" }, 404);
 
+  const hasDuplicate = await hasResumableJobWithSameName(
+    c.env.DB,
+    parsed.data.customerId,
+    parsed.data.name,
+  );
+  if (hasDuplicate) {
+    return c.json(
+      {
+        error:
+          "job already in queue: you cannot add more than one non-done job with the same name for this customer",
+      },
+      409,
+    );
+  }
+
   const id = crypto.randomUUID();
   const row = await insertJob(c.env.DB, id, {
     customerId: parsed.data.customerId,
@@ -464,6 +480,17 @@ app.post("/jobs", async (c) => {
     return c.json(
       { error: "Invalid input", details: parsed.error.flatten() },
       400,
+    );
+  }
+
+  const hasDuplicate = await hasResumableJobWithSameName(c.env.DB, customer.id, parsed.data.name);
+  if (hasDuplicate) {
+    return c.json(
+      {
+        error:
+          "job already in queue: you cannot add more than one non-done job with the same name for this customer",
+      },
+      409,
     );
   }
 

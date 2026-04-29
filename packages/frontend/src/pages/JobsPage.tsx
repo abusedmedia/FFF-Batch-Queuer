@@ -1,5 +1,6 @@
 import {
   Alert,
+  Badge,
   Button,
   Group,
   Loader,
@@ -15,6 +16,19 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { createJob, fetchCustomers, fetchJobs, updateJob } from "../api";
 import type { Customer, Job } from "../types";
+
+function getStatusColor(status: Job["status"]): string {
+  switch (status) {
+    case "pending":
+      return "yellow";
+    case "running":
+      return "blue";
+    case "done":
+      return "green";
+    case "failed":
+      return "red";
+  }
+}
 
 export function JobsPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -206,7 +220,11 @@ export function JobsPage() {
               <Table.Tr key={job.id}>
                 <Table.Td>{job.name}</Table.Td>
                 <Table.Td>{job.customerName}</Table.Td>
-                <Table.Td>{job.status}</Table.Td>
+                <Table.Td>
+                  <Badge color={getStatusColor(job.status)} variant="light">
+                    {job.status}
+                  </Badge>
+                </Table.Td>
                 <Table.Td>{job.attempts}</Table.Td>
                 <Table.Td>{job.errorAttempts}</Table.Td>
                 <Table.Td>
