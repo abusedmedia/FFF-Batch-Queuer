@@ -305,7 +305,7 @@ export async function deleteJobById(db: D1Database, jobId: string): Promise<bool
 /**
  * Atomically increments the attempt counter and flips the row to running.
  * Returns the new attempt count, or null if the row no longer exists or is
- * already terminal (done/failed) - the caller should ack and exit.
+ * not claimable (already running or terminal) - the caller should ack and exit.
  */
 export async function startAttempt(
   db: D1Database,
@@ -327,7 +327,7 @@ export async function startAttempt(
              updated_at = ?
        WHERE id = ?
          AND customer_id = ?
-         AND status IN ('pending', 'running')
+         AND status = 'pending'
       RETURNING attempts, error_attempts, max_attempts, success_count, success_limit`,
     )
     .bind(ts, id, customerId)

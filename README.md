@@ -256,9 +256,10 @@ app.post("/work", async (req, res) => {
 
 ## Operational notes
 
-- **Idempotency:** the consumer always re-checks the row's status before
-  fetching, so duplicate Queue deliveries don't double-call your target if
-  the job has already finished.
+- **Idempotency / duplicate delivery safety:** each attempt is claimed with an
+  atomic `pending -> running` transition before fetching, so duplicate Queue
+  deliveries for the same job id do not execute concurrently. Terminal
+  (`done`/`failed`) jobs are also short-circuited and acked.
 - **Customer partitioning:** all read/write/cancel operations are scoped by
   `customer_id` resolved from the token, so one customer token cannot fetch or
   mutate another customer's jobs.
