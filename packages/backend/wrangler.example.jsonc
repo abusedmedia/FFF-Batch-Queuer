@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fff-batch-queuer",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "dev": {
+    "port": 8999
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fff-batch-queuer",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "JOB_QUEUE",
+        "queue": "fff-bq-queue"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "fff-bq-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 100,
+        "dead_letter_queue": "fff-bq-dlq"
+      },
+      {
+        "queue": "fff-bq-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3
+      }
+    ]
+  }
+}

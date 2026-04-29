@@ -1,0 +1,280 @@
+import { backoffSeconds } from "./backoff";
+import {
+  getJob,
+  incrementErrorAttempts,
+  incrementSuccessCount,
+  markDone,
+  markFailed,
+  markPendingForRetry,
+  startAttempt,
+} from "./db";
+import type { Env, JobMessage, JobRow } from "./types";
+import { MAX_BODY_SNAPSHOT_BYTES } from "./types";
+
+interface FetchOutcome {
+  status: number | null;
+  body: string | null;
+  parsed: unknown;
+  error: string | null;
+}
+
+function parseHeaders(raw: string | null): Record<string, string> | undefined {
+  if (!raw) return undefined;
+  try {
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      return obj as Record<string, string>;
+    }
+  } catch {
+    // fall through
+  }
+  return undefined;
+}
+
+function parsePayload(raw: string | null): unknown {
+  if (raw == null) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function buildBody(method: string, payload: unknown): BodyInit | undefined {
+  if (payload === undefined) return undefined;
+  if (method === "GET" || method === "HEAD") return undefined;
+  if (typeof payload === "string") return payload;
+  return JSON.stringify(payload);
+}
+
+function buildHeaders(
+  method: string,
+  payload: unknown,
+  user: Record<string, string> | undefined,
+): HeadersInit {
+  const headers: Record<string, string> = {};
+  if (user) {
+    for (const [k, v] of Object.entries(user)) headers[k] = v;
+  }
+  const hasBody =
+    payload !== undefined && method !== "GET" && method !== "HEAD";
+  if (hasBody && typeof payload !== "string") {
+    const hasCt = Object.keys(headers).some(
+      (h) => h.toLowerCase() === "content-type",
+    );
+    if (!hasCt) headers["content-type"] = "application/json";
+  }
+  return headers;
+}
+
+async function callTarget(row: JobRow): Promise<FetchOutcome> {
+  const method = row.method.toUpperCase();
+  const payload = parsePayload(row.payload);
+  const userHeaders = parseHeaders(row.headers);
+
+  try {
+    const res = await fetch(row.url, {
+      method,
+      headers: buildHeaders(method, payload, userHeaders),
+      body: buildBody(method, payload),
+    });
+
+    const text = await res.text();
+    const trimmed =
+      text.length > MAX_BODY_SNAPSHOT_BYTES
+        ? text.slice(0, MAX_BODY_SNAPSHOT_BYTES)
+        : text;
+    let parsed: unknown = undefined;
+    try {
+      parsed = text.length ? JSON.parse(text) : undefined;
+    } catch {
+      parsed = undefined;
+    }
+
+    return {
+      status: res.status,
+      body: trimmed,
+      parsed,
+      error: null,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      status: null,
+      body: null,
+      parsed: undefined,
+      error: `fetch failed: ${message}`,
+    };
+  }
+}
+
+function isStop(parsed: unknown): boolean {
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    "stop" in (parsed as Record<string, unknown>) &&
+    (parsed as Record<string, unknown>).stop === true
+  );
+}
+
+function hasErrorKey(parsed: unknown): boolean {
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    "error" in (parsed as Record<string, unknown>)
+  );
+}
+
+export async function processJobMessage(
+  msg: Message<JobMessage>,
+  env: Env,
+): Promise<void> {
+  const { jobId, customerId } = msg.body ?? ({} as JobMessage);
+  if (!jobId || !customerId) {
+    console.warn("[consumer] message missing jobId/customerId, acking");
+    msg.ack();
+    return;
+  }
+
+  const existing = await getJob(env.DB, jobId, customerId);
+  if (!existing) {
+    console.warn(`[consumer] job ${jobId} not found, acking`);
+    msg.ack();
+    return;
+  }
+  if (existing.status === "done" || existing.status === "failed") {
+    msg.ack();
+    return;
+  }
+
+  const started = await startAttempt(env.DB, jobId, customerId);
+  if (!started) {
+    msg.ack();
+    return;
+  }
+
+  const outcome = await callTarget(existing);
+
+  if (isStop(outcome.parsed)) {
+    await markDone(
+      env.DB,
+      jobId,
+      customerId,
+      outcome.status as number,
+      outcome.body,
+    );
+    msg.ack();
+    return;
+  }
+
+  const isHttpError =
+    outcome.status === null || outcome.status < 200 || outcome.status >= 300;
+  const payloadHasError = hasErrorKey(outcome.parsed);
+  const isError = outcome.error !== null || isHttpError || payloadHasError;
+
+  if (!isError) {
+    const successState = await incrementSuccessCount(env.DB, jobId, customerId);
+    if (!successState) {
+      msg.ack();
+      return;
+    }
+    const reachedSuccessLimit =
+      successState.successLimit !== -1 &&
+      successState.successCount >= successState.successLimit;
+    if (reachedSuccessLimit) {
+      await markDone(
+        env.DB,
+        jobId,
+        customerId,
+        outcome.status as number,
+        outcome.body,
+      );
+      msg.ack();
+      return;
+    }
+    await markPendingForRetry(
+      env.DB,
+      jobId,
+      customerId,
+      outcome.status,
+      outcome.body,
+      null,
+    );
+    const delaySeconds = Math.max(1, existing.success_retry_delay_seconds);
+    console.log(
+      `[consumer] retrying job ${jobId} attempt=${started.attempts} delaySeconds=${delaySeconds} mode=fixed reason="success iteration ${successState.successCount}/${successState.successLimit}"`,
+    );
+    msg.retry({ delaySeconds });
+    return;
+  }
+
+  const reason =
+    outcome.error ??
+    (isHttpError ? `HTTP ${outcome.status}` : "response payload contains error key");
+
+  const errorState = await incrementErrorAttempts(env.DB, jobId, customerId);
+  if (!errorState) {
+    msg.ack();
+    return;
+  }
+
+  const reachedErrorLimit =
+    errorState.errorAttempts >= errorState.errorAttemptLimit;
+  if (reachedErrorLimit) {
+    await markFailed(
+      env.DB,
+      jobId,
+      customerId,
+      reason,
+      outcome.status,
+      outcome.body,
+    );
+    msg.ack();
+    return;
+  }
+
+  await markPendingForRetry(
+    env.DB,
+    jobId,
+    customerId,
+    outcome.status,
+    outcome.body,
+    reason,
+  );
+
+  const delaySeconds = backoffSeconds(errorState.errorAttempts);
+
+  console.log(
+    `[consumer] retrying job ${jobId} attempt=${started.attempts} delaySeconds=${delaySeconds} mode=exponential reason="${reason}" errorAttempts=${errorState.errorAttempts}/${errorState.errorAttemptLimit}`,
+  );
+  msg.retry({ delaySeconds });
+}
+
+export async function processDlqMessage(
+  msg: Message<JobMessage>,
+  env: Env,
+): Promise<void> {
+  const { jobId, customerId } = msg.body ?? ({} as JobMessage);
+  if (!jobId || !customerId) {
+    msg.ack();
+    return;
+  }
+  const existing = await getJob(env.DB, jobId, customerId);
+  if (!existing) {
+    msg.ack();
+    return;
+  }
+  if (existing.status === "done" || existing.status === "failed") {
+    msg.ack();
+    return;
+  }
+  await markFailed(
+    env.DB,
+    jobId,
+    customerId,
+    "dead-lettered after Queues max_retries",
+    existing.last_status,
+    existing.last_body,
+  );
+  msg.ack();
+}

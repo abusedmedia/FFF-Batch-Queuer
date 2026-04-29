@@ -1,0 +1,26 @@
+{
+  "name": "fff-batch-queuer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker that queues HTTP jobs with separate error-attempt and success-iteration limits, plus {stop:true} override.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "db:init:local": "wrangler d1 execute fff-batch-queuer --local --file=./db/init.sql",
+    "db:init:remote": "wrangler d1 execute fff-batch-queuer --remote --file=./db/init.sql"
+  },
+  "dependencies": {
+    "hono": "^4.12.15",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260426.1",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.85.0"
+  }
+}

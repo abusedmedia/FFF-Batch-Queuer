@@ -1,0 +1,246 @@
+# fff-batch-queuer
+
+A Cloudflare Worker that accepts HTTP job definitions, stores them in D1, and
+keeps re-calling the target URL with two independent limits:
+
+- an **error attempt limit** (for non-2xx/fetch failures/payloads with `error`),
+- a **success iteration limit** (for successful calls),
+
+plus a payload-level override where `{ "stop": true }` immediately marks the
+job `done`.
+
+## Architecture
+
+One Worker, two roles:
+
+- **HTTP API (producer)** - `POST /jobs` writes a row to D1 and pushes a
+  `{ jobId }` message to the `fff-bq-queue`.
+- **Queue consumer** - same Worker. For each message it loads the job, calls
+  the target URL, and either marks the job `done` or calls
+  `msg.retry({ delaySeconds })` with exponential backoff. The `fff-bq-dlq`
+  dead letter queue catches anything that exceeds the platform retry cap and
+  flips the job to `failed`.
+
+State lives in D1 across two tables (`customers`, `jobs`). No cron, no Durable
+Objects, no Workflows.
+
+## Behaviour summary
+
+| Outcome of the call | What happens |
+| --- | --- |
+| Body has `{stop:true}` | Job marked `done` immediately, message acked. |
+| HTTP 2xx and body without `error` | `success_count` increments. If `successLimit` reached, job is `done`; else retried with fixed `successRetryDelaySeconds`. |
+| Non-2xx HTTP response | `error_attempts` increments and job retries with exponential backoff. |
+| Network / fetch error | `error_attempts` increments and job retries with exponential backoff. |
+| HTTP 2xx with body containing `error` key | `error_attempts` increments and job retries with exponential backoff. |
+| Per-job `errorAttemptLimit` reached | Job marked `failed`, message acked. |
+| Queues' `max_retries=100` reached | Message routed to `fff-bq-dlq`, consumer marks `failed`. |
+| Job already `done`/`failed`/cancelled | Message acked immediately, no fetch. |
+
+Exponential backoff schedule (for errors only, no jitter): `5s, 10s, 20s, 40s,
+80s, 160s, 300s, 300s, ...` plus a small random jitter (~0-1s).
+
+## Project layout
+
+```
+.
+├── db/
+│   └── init.sql             # full current schema bootstrap
+├── src/
+│   ├── api.ts               # Hono routes (POST /jobs, GET /jobs, ...)
+│   ├── backoff.ts           # exponential backoff + jitter
+│   ├── consumer.ts          # processJobMessage / processDlqMessage
+│   ├── db.ts                # D1 helpers
+│   ├── index.ts             # entry: fetch + queue handlers
+│   └── types.ts             # shared types & constants
+├── package.json
+├── tsconfig.json
+├── wrangler.example.jsonc   # committed template config
+└── wrangler.jsonc           # local config (gitignored)
+```
+
+## Setup
+
+```bash
+npm install
+```
+
+Create the Cloudflare resources (one-time per environment):
+
+```bash
+# D1 database - copy the printed database_id into wrangler.jsonc
+npx wrangler d1 create fff-batch-queuer
+
+# Both queues
+npx wrangler queues create fff-bq-queue
+npx wrangler queues create fff-bq-dlq
+```
+
+Open [`wrangler.jsonc`](wrangler.jsonc) and replace
+`REPLACE_WITH_D1_DATABASE_ID` with the id printed above.
+
+Before that, copy the example config:
+
+```bash
+cp wrangler.example.jsonc wrangler.jsonc
+```
+
+Initialize schema locally and remotely:
+
+```bash
+npm run db:init:local
+npm run db:init:remote
+```
+
+## Run locally
+
+```bash
+npm run dev
+```
+
+`wrangler dev` provides a local D1 + Queues simulator (Miniflare). The
+consumer runs in the same process as the API.
+
+## Customers and tokens
+
+`x-client-token` is the credential. The service hashes it with SHA-256 and
+looks up an active row in `customers(token_hash)`.
+
+Create a customer by inserting a pre-hashed token:
+
+```bash
+TOKEN="client_abc_123"
+HASH=$(printf '%s' "$TOKEN" | shasum -a 256 | awk '{print $1}')
+npx wrangler d1 execute fff-batch-queuer --remote --command \
+"INSERT INTO customers (id,name,token_hash,is_active,created_at,updated_at)
+ VALUES ('cust_demo','Demo customer','$HASH',1,strftime('%s','now')*1000,strftime('%s','now')*1000);"
+```
+
+Use `TOKEN` as `x-client-token` in API calls.
+
+## Deploy
+
+```bash
+npm run deploy
+```
+
+## HTTP API
+
+All API calls require the `x-client-token` header. The raw token is never
+stored in jobs; only a SHA-256 hash is matched against `customers.token_hash`.
+This acts as:
+
+- **authentication key** (request is rejected if missing), and
+- **owner key** (you only see/cancel jobs created with the same token).
+
+### `POST /jobs`
+
+Create a job and immediately enqueue the first attempt.
+
+```bash
+curl -X POST https://<your-worker>.workers.dev/jobs \
+  -H 'x-client-token: client_abc_123' \
+  -H 'content-type: application/json' \
+  -d '{
+    "name": "ping-internal-api",
+    "url": "https://api.example.com/work",
+    "method": "POST",
+    "headers": { "authorization": "Bearer abc" },
+    "payload": { "tenant": 42 },
+    "errorAttemptLimit": 1000,
+    "successLimit": 1,
+    "successRetryDelaySeconds": 30
+  }'
+```
+
+Response (`201 Created`):
+
+```json
+{
+  "id": "9c3f...",
+  "job": { "id": "9c3f...", "status": "pending", "attempts": 0, ... }
+}
+```
+
+Field reference for the request body:
+
+| Field | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |  | Human label, indexed for filtering. |
+| `url` | string (URL) | yes |  | Target endpoint to call. |
+| `method` | `GET`/`POST`/`PUT`/`PATCH`/`DELETE` | no | `POST` | Uppercase only. |
+| `payload` | any JSON value | no | none | Sent as JSON body when `method` allows a body. |
+| `headers` | `Record<string, string>` | no | none | `content-type: application/json` is auto-added if a JSON body is sent and you didn't override it. |
+| `errorAttemptLimit` | integer (>=1, <=100000) | no | `1000` | Error retry cap. Counts non-2xx, fetch failures, and payloads containing `error`. |
+| `maxAttempts` | integer (>=1, <=100000) | no | `1000` | Backward-compatible alias for `errorAttemptLimit`. |
+| `successLimit` | integer (`-1` or >=1) | no | `1` | Number of successful responses required before marking `done`. `-1` means unlimited success iterations. |
+| `successRetryDelaySeconds` | integer (>=1, <=86400) | no | `30` | Fixed delay used between successful iterations when the job is not yet done. |
+
+Token behavior:
+
+- The job is stored with `customer_id` (owner FK), not the raw token.
+- The queue message includes `{ jobId, customerId }`.
+- Consumer processing and state updates are scoped to that same customer.
+
+### `GET /jobs/:id`
+
+Returns the current state of a job.
+
+### `GET /jobs?status=&name=&limit=&offset=`
+
+Lists jobs, newest first. `limit` defaults to 50 (max 200).
+
+### `POST /jobs/:id/cancel`
+
+Marks a non-terminal job as `failed` with `last_error="cancelled"`. The next
+queue delivery for that job will short-circuit and ack.
+
+## How the target URL controls the loop
+
+The Worker fetches your URL with the configured method/headers/payload. The
+target should:
+
+- Return JSON body `{"stop": true}` when the work is finally complete. This is
+  an override that immediately marks the job `done`.
+- Return HTTP 2xx without `error` to count as a successful iteration. The job
+  keeps running until it reaches `successLimit` (or forever if `successLimit=-1`),
+  with fixed delay `successRetryDelaySeconds` between successful calls.
+- Return non-2xx, trigger network/fetch errors, or include `error` in payload
+  to count as an error attempt and schedule exponential backoff retries up to
+  `errorAttemptLimit`.
+
+Example target handler:
+
+```js
+app.post("/work", async (req, res) => {
+  const more = await processNextChunk(req.body);
+  res.json({ stop: !more });
+});
+```
+
+## Operational notes
+
+- **Idempotency:** the consumer always re-checks the row's status before
+  fetching, so duplicate Queue deliveries don't double-call your target if
+  the job has already finished.
+- **Customer partitioning:** all read/write/cancel operations are scoped by
+  `customer_id` resolved from the token, so one customer token cannot fetch or
+  mutate another customer's jobs.
+- **Body snapshots:** the last response body is truncated to 4 KB and stored
+  on the row for debugging via `GET /jobs/:id`.
+- **DLQ as safety net:** Queues will give up after `max_retries=100` (set in
+  [`wrangler.jsonc`](wrangler.jsonc)) and route the message to `fff-bq-dlq`.
+  The same Worker consumes that queue and flips the job to `failed`. This
+  protects against pathological cases where backoff would otherwise grow
+  unbounded against the platform's retry budget.
+- **Auth:** implemented via `x-client-token` -> SHA-256 lookup in
+  `customers.token_hash`; deactivate customers with `is_active = 0`.
+
+## Useful commands
+
+```bash
+npm run typecheck        # tsc --noEmit
+npm run dev              # local Worker + D1 + Queues simulator
+npm run tail             # stream logs from the deployed Worker
+npx wrangler d1 execute fff-batch-queuer --remote --command "SELECT id, name, status, attempts FROM jobs ORDER BY created_at DESC LIMIT 20;"
+```

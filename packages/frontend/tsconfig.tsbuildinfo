@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/theme.ts","./src/types.ts","./src/components/adminlayout.tsx","./src/components/appheader.tsx","./src/components/contextualsidebar.tsx","./src/pages/customerspage.tsx","./src/pages/jobspage.tsx"],"version":"6.0.3"}
