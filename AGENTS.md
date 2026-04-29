@@ -22,4 +22,8 @@ Follow these conventions so new work stays consistent and deployable.
 - **Layout:** **`AdminLayout`** uses Mantine **`AppShell`** with **`AppHeader`** and **`ContextualSidebar`**—extend navigation and sections in the same pattern (sidebar entries matching routes).
 - **Theming:** Use **`adminTheme`** from `src/theme.ts` and Mantine primitives; keep spacing, typography, and primary styling aligned with the existing admin shell. New screens should stay visually consistent with this Mantine-based shell.
 - **Main content styling:** Do not wrap page body content in a bordered outer container/card; prefer clean AppShell main content and only use borders for inner components when needed (e.g. tables, inline panels).
+- **Responsive layout:** Ensure the UI is responsive and usable on mobile and tablet devices. Use a side menu with a hamburger button and follow common navigation conventions for this layout pattern.
+- **Responsive implementation details:** Use Mantine breakpoints and responsive props (for spacing, grid, and visibility) instead of custom media-query-heavy one-offs. Keep touch targets comfortably tappable (generally at least 44x44 px) and avoid hover-only interactions for primary actions.
+- **Sidebar behavior on small screens:** Collapse the contextual sidebar into a drawer-style navigation opened from the header hamburger button; close it after route selection and preserve clear active-route indication.
+- **Verification expectations:** Validate each new or updated screen at common widths (mobile, tablet, desktop), checking layout stability, text wrapping, horizontal overflow, and keyboard accessibility.
 

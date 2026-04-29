@@ -158,9 +158,11 @@ export function CustomersPage() {
 
   return (
     <>
-      <Group justify="space-between" mb="md">
+      <Group justify="space-between" mb="md" align="center" wrap="wrap">
         <Title order={3}>Customers</Title>
-        <Button onClick={openCreateModal}>New Customer</Button>
+        <Button onClick={openCreateModal} miw={120}>
+          New Customer
+        </Button>
       </Group>
       {loading && <Loader />}
       {error && <Alert color="red">{error}</Alert>}
@@ -168,36 +170,38 @@ export function CustomersPage() {
         <Text c="dimmed">No customers found.</Text>
       )}
       {!loading && !error && customers.length > 0 && (
-        <Table striped highlightOnHover withTableBorder>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Name</Table.Th>
-              <Table.Th>ID</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Created</Table.Th>
-              <Table.Th />
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {customers.map((customer) => (
-              <Table.Tr key={customer.id}>
-                <Table.Td>{customer.name}</Table.Td>
-                <Table.Td>{customer.id}</Table.Td>
-                <Table.Td>
-                  <Badge color={getCustomerStatusColor(customer.isActive)} variant="light">
-                    {customer.isActive ? "Active" : "Inactive"}
-                  </Badge>
-                </Table.Td>
-                <Table.Td>{formatDate(customer.createdAt)}</Table.Td>
-                <Table.Td>
-                  <Button variant="light" size="xs" onClick={() => openEditModal(customer)}>
-                    Edit
-                  </Button>
-                </Table.Td>
+        <Table.ScrollContainer minWidth={720}>
+          <Table striped highlightOnHover withTableBorder>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Name</Table.Th>
+                <Table.Th>ID</Table.Th>
+                <Table.Th>Status</Table.Th>
+                <Table.Th>Created</Table.Th>
+                <Table.Th />
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+            </Table.Thead>
+            <Table.Tbody>
+              {customers.map((customer) => (
+                <Table.Tr key={customer.id}>
+                  <Table.Td>{customer.name}</Table.Td>
+                  <Table.Td>{customer.id}</Table.Td>
+                  <Table.Td>
+                    <Badge color={getCustomerStatusColor(customer.isActive)} variant="light">
+                      {customer.isActive ? "Active" : "Inactive"}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td>{formatDate(customer.createdAt)}</Table.Td>
+                  <Table.Td>
+                    <Button variant="light" onClick={() => openEditModal(customer)}>
+                      Edit
+                    </Button>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
       )}
 
       <Modal

@@ -205,18 +205,21 @@ export function JobsPage() {
 
   return (
     <>
-      <Group justify="space-between" mb="md">
+      <Group justify="space-between" mb="md" align="flex-end" wrap="wrap">
         <Title order={3}>Jobs</Title>
-        <Group>
+        <Group wrap="wrap" justify="flex-end">
           <Select
             placeholder="Filter by customer"
             clearable
             data={customerOptions}
             value={selectedCustomerId}
             onChange={setSelectedCustomerId}
-            w={280}
+            w={{ base: "100%", sm: 280 }}
+            maw={360}
           />
-          <Button onClick={openCreateModal}>New Job</Button>
+          <Button onClick={openCreateModal} miw={120}>
+            New Job
+          </Button>
         </Group>
       </Group>
       {loading && <Loader />}
@@ -225,38 +228,40 @@ export function JobsPage() {
         <Text c="dimmed">No jobs found.</Text>
       )}
       {!loading && !error && jobs.length > 0 && (
-        <Table striped highlightOnHover withTableBorder>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Name</Table.Th>
-              <Table.Th>Customer</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Attempts</Table.Th>
-              <Table.Th>Error Attempts</Table.Th>
-              <Table.Th>Edit</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {jobs.map((job) => (
-              <Table.Tr key={job.id}>
-                <Table.Td>{job.name}</Table.Td>
-                <Table.Td>{job.customerName}</Table.Td>
-                <Table.Td>
-                  <Badge color={getStatusColor(job.status)} variant="light">
-                    {job.status}
-                  </Badge>
-                </Table.Td>
-                <Table.Td>{job.attempts}</Table.Td>
-                <Table.Td>{job.errorAttempts}</Table.Td>
-                <Table.Td>
-                  <Button variant="light" size="xs" onClick={() => openEditModal(job)}>
-                    Edit
-                  </Button>
-                </Table.Td>
+        <Table.ScrollContainer minWidth={760}>
+          <Table striped highlightOnHover withTableBorder>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Name</Table.Th>
+                <Table.Th>Customer</Table.Th>
+                <Table.Th>Status</Table.Th>
+                <Table.Th>Attempts</Table.Th>
+                <Table.Th>Error Attempts</Table.Th>
+                <Table.Th>Edit</Table.Th>
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+            </Table.Thead>
+            <Table.Tbody>
+              {jobs.map((job) => (
+                <Table.Tr key={job.id}>
+                  <Table.Td>{job.name}</Table.Td>
+                  <Table.Td>{job.customerName}</Table.Td>
+                  <Table.Td>
+                    <Badge color={getStatusColor(job.status)} variant="light">
+                      {job.status}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td>{job.attempts}</Table.Td>
+                  <Table.Td>{job.errorAttempts}</Table.Td>
+                  <Table.Td>
+                    <Button variant="light" onClick={() => openEditModal(job)}>
+                      Edit
+                    </Button>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
       )}
 
       <Modal

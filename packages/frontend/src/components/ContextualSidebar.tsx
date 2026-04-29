@@ -2,12 +2,16 @@ import { IconListDetails, IconUsers } from "@tabler/icons-react";
 import { NavLink, Stack } from "@mantine/core";
 import { Link, useLocation } from "react-router-dom";
 
+type ContextualSidebarProps = {
+  onNavigate?: () => void;
+};
+
 const items = [
   { label: "Customers", to: "/customers", icon: IconUsers },
   { label: "Jobs", to: "/jobs", icon: IconListDetails },
 ];
 
-export function ContextualSidebar() {
+export function ContextualSidebar({ onNavigate }: ContextualSidebarProps) {
   const location = useLocation();
   return (
     <Stack p="sm" gap="xs">
@@ -19,6 +23,7 @@ export function ContextualSidebar() {
           label={item.label}
           active={location.pathname.startsWith(item.to)}
           leftSection={<item.icon size={16} />}
+          onClick={onNavigate}
         />
       ))}
     </Stack>
