@@ -156,6 +156,7 @@ before deploying:
 - `VITE_OBSERVABILITY_TOKEN` (optional, only if your backend observability
   endpoints are protected by this header)
 
+
 Without `VITE_API_BASE_URL`, the frontend falls back to
 `http://127.0.0.1:8999` (local dev backend), which will fail in production.
 
