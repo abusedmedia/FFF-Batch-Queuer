@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "fff-batch-queuer",
+  "name": "fff-batch-queuer-backend",
   "main": "src/index.ts",
   "compatibility_date": "2026-04-16",
   "compatibility_flags": ["nodejs_compat"],

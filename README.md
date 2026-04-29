@@ -120,9 +120,44 @@ Use `TOKEN` as `x-client-token` in API calls.
 
 ## Deploy
 
+### Backend (Worker)
+
 ```bash
+cd packages/backend
 npm run deploy
 ```
+
+### Frontend app (Cloudflare Pages)
+
+Build the frontend:
+
+```bash
+cd packages/frontend
+npm run build
+```
+
+Create a Pages project once (pick your own project name):
+
+```bash
+npx wrangler pages project create fff-batch-queuer-frontend
+```
+
+Deploy the built app:
+
+```bash
+npx wrangler pages deploy dist --project-name fff-batch-queuer-frontend
+```
+
+Set frontend env vars in Cloudflare Pages (**Settings -> Environment variables**)
+before deploying:
+
+- `VITE_API_BASE_URL` (required in production), e.g.
+  `https://fff-batch-queuer-backend.<your-subdomain>.workers.dev`
+- `VITE_OBSERVABILITY_TOKEN` (optional, only if your backend observability
+  endpoints are protected by this header)
+
+Without `VITE_API_BASE_URL`, the frontend falls back to
+`http://127.0.0.1:8999` (local dev backend), which will fail in production.
 
 ## HTTP API
 

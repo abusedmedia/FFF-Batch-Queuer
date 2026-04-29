@@ -1,5 +1,5 @@
 {
-  "name": "fff-batch-queuer",
+  "name": "fff-batch-queuer-backend",
   "version": "0.1.0",
   "private": true,
   "description": "Cloudflare Worker that queues HTTP jobs with separate error-attempt and success-iteration limits, plus {stop:true} override.",
