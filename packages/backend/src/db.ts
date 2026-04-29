@@ -294,6 +294,14 @@ export async function deleteCustomerWithJobs(
   await db.prepare(`DELETE FROM customers WHERE id = ?`).bind(customerId).run();
 }
 
+export async function deleteJobById(db: D1Database, jobId: string): Promise<boolean> {
+  const result = await db
+    .prepare(`DELETE FROM jobs WHERE id = ?`)
+    .bind(jobId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
 /**
  * Atomically increments the attempt counter and flips the row to running.
  * Returns the new attempt count, or null if the row no longer exists or is

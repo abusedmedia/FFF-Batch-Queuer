@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { z } from "zod";
 import {
   createCustomer,
+  deleteJobById,
   deleteCustomerWithJobs,
   getCustomerById,
   getActiveCustomerByTokenHash,
@@ -460,6 +461,19 @@ app.patch("/observability/jobs/:id", async (c) => {
   });
   if (!updated) return c.json({ error: "not found" }, 404);
   return c.json({ job: serialize(updated) });
+});
+
+app.delete("/observability/jobs/:id", async (c) => {
+  if (!hasObservabilityAccess(c)) {
+    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  }
+
+  const id = c.req.param("id");
+  const existing = await getJob(c.env.DB, id);
+  if (!existing) return c.json({ error: "not found" }, 404);
+
+  const deleted = await deleteJobById(c.env.DB, id);
+  return c.json({ deleted });
 });
 
 app.post("/jobs", async (c) => {

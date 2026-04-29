@@ -14,7 +14,7 @@ import {
   Title,
 } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
-import { createJob, fetchCustomers, fetchJobs, updateJob } from "../api";
+import { createJob, deleteJob, fetchCustomers, fetchJobs, updateJob } from "../api";
 import type { Customer, Job } from "../types";
 
 function getStatusColor(status: Job["status"]): string {
@@ -41,6 +41,7 @@ export function JobsPage() {
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [modalCustomerId, setModalCustomerId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [modalName, setModalName] = useState("");
   const [modalUrl, setModalUrl] = useState("");
@@ -110,9 +111,29 @@ export function JobsPage() {
   }
 
   function closeModal(): void {
-    if (saving) return;
+    if (saving || deleting) return;
     setModalOpened(false);
     setEditingJob(null);
+  }
+
+  async function onDeleteJob(): Promise<void> {
+    if (!editingJob) return;
+    if (!window.confirm(`Delete job "${editingJob.name}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    setSaveError(null);
+    try {
+      await deleteJob(editingJob.id);
+      setJobs((rows) => rows.filter((row) => row.id !== editingJob.id));
+      setModalOpened(false);
+      setEditingJob(null);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to delete job");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function onSaveModal(): Promise<void> {
@@ -262,13 +283,14 @@ export function JobsPage() {
             label="name"
             value={modalName}
             onChange={(event) => setModalName(event.currentTarget.value)}
-            disabled={saving}
+            disabled={saving || modalMode === "edit"}
+            readOnly={modalMode === "edit"}
           />
           <TextInput
             label="url"
             value={modalUrl}
             onChange={(event) => setModalUrl(event.currentTarget.value)}
-            disabled={saving}
+            disabled={saving || deleting}
           />
         </Group>
         <Group mt="sm" grow align="start">
@@ -277,7 +299,7 @@ export function JobsPage() {
             data={["GET", "POST", "PUT", "PATCH", "DELETE"]}
             value={modalMethod}
             onChange={(value) => setModalMethod(value ?? "POST")}
-            disabled={saving}
+            disabled={saving || deleting}
           />
           <NumberInput
             label="max_attempts"
@@ -286,7 +308,7 @@ export function JobsPage() {
             onChange={(value) =>
               setModalErrorAttemptLimit(typeof value === "number" ? value : 1)
             }
-            disabled={saving}
+            disabled={saving || deleting}
           />
         </Group>
         <Group mt="sm" grow align="start">
@@ -296,7 +318,7 @@ export function JobsPage() {
             onChange={(value) =>
               setModalSuccessLimit(typeof value === "number" ? value : 1)
             }
-            disabled={saving}
+            disabled={saving || deleting}
           />
           <NumberInput
             label="success_retry_delay_seconds"
@@ -305,7 +327,7 @@ export function JobsPage() {
             onChange={(value) =>
               setModalSuccessRetryDelaySeconds(typeof value === "number" ? value : 30)
             }
-            disabled={saving}
+            disabled={saving || deleting}
           />
         </Group>
         <Textarea
@@ -315,7 +337,7 @@ export function JobsPage() {
           autosize
           value={modalPayload}
           onChange={(event) => setModalPayload(event.currentTarget.value)}
-          disabled={saving}
+          disabled={saving || deleting}
         />
         <Textarea
           mt="sm"
@@ -324,7 +346,7 @@ export function JobsPage() {
           autosize
           value={modalHeaders}
           onChange={(event) => setModalHeaders(event.currentTarget.value)}
-          disabled={saving}
+          disabled={saving || deleting}
         />
         {saveError && (
           <Alert mt="sm" color="red">
@@ -350,13 +372,26 @@ export function JobsPage() {
           </Alert>
         )}
         <Group justify="flex-end" mt="md">
-          <Button variant="default" onClick={closeModal} disabled={saving}>
+          {modalMode === "edit" && (
+            <Button
+              color="red"
+              variant="light"
+              onClick={() => void onDeleteJob()}
+              loading={deleting}
+              disabled={saving}
+              mr="auto"
+            >
+              Delete job
+            </Button>
+          )}
+          <Button variant="default" onClick={closeModal} disabled={saving || deleting}>
             Cancel
           </Button>
           <Button
             onClick={() => void onSaveModal()}
             loading={saving}
             disabled={
+              deleting ||
               modalName.trim().length === 0 ||
               modalUrl.trim().length === 0 ||
               (modalMode === "create" && !modalCustomerId)

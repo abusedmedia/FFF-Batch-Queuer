@@ -77,6 +77,12 @@ export async function updateJob(
   });
 }
 
+export async function deleteJob(jobId: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/observability/jobs/${encodeURIComponent(jobId)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function updateCustomer(
   customerId: string,
   input: { name: string; isActive: boolean; rotateToken: boolean },
