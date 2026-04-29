@@ -5,6 +5,7 @@ export interface Env {
   CORS_ORIGIN?: string;
   RECOVERY_STALE_RUNNING_MS?: string;
   RECOVERY_SCAN_LIMIT?: string;
+  RECOVERY_PENDING_BOOT_REQUEUE_LIMIT?: string;
 }
 
 export type JobStatus = "pending" | "running" | "done" | "failed";

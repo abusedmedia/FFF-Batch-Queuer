@@ -521,6 +521,28 @@ export async function recoverStaleRunningJobs(
   return result.results ?? [];
 }
 
+/**
+ * Returns pending jobs that should be safe to re-enqueue after process restarts.
+ * This does not mutate the rows; it only selects candidates.
+ */
+export async function listResumablePendingJobs(
+  db: D1Database,
+  limit: number,
+): Promise<RecoveredJobRow[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 500);
+  const result = await db
+    .prepare(
+      `SELECT id, customer_id
+       FROM jobs
+       WHERE status = 'pending'
+       ORDER BY updated_at ASC
+       LIMIT ?`,
+    )
+    .bind(safeLimit)
+    .all<RecoveredJobRow>();
+  return result.results ?? [];
+}
+
 export async function getActiveCustomerByTokenHash(
   db: D1Database,
   tokenHash: string,
