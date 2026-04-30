@@ -42,6 +42,15 @@ function getStatusColor(status: Job["status"]): string {
   }
 }
 
+function estimateErrorRetryDelaySeconds(errorAttempts: number): number {
+  const baseMs = 5_000;
+  const maxMs = 300_000;
+  const safeAttempt = Math.max(1, Math.floor(errorAttempts));
+  const expMs = Math.min(maxMs, baseMs * 2 ** (safeAttempt - 1));
+  // Backend adds up to 1s jitter; we show a close deterministic estimate.
+  return Math.max(1, Math.ceil(expMs / 1000));
+}
+
 export function JobsPage() {
   const DEFAULT_PAGE_SIZE = 50;
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -137,6 +146,30 @@ export function JobsPage() {
 
   function formatDate(timestamp: number): string {
     return new Date(timestamp).toLocaleString();
+  }
+
+  function formatRelative(timestamp: number): string {
+    const diffMs = timestamp - Date.now();
+    if (diffMs <= 0) return "now";
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) return `in ${hours}h ${minutes}m`;
+    if (minutes > 0) return `in ${minutes}m ${seconds}s`;
+    return `in ${seconds}s`;
+  }
+
+  function getNextRunAt(job: Job): number | null {
+    if (job.status !== "pending") return null;
+    if (job.attempts === 0) return Date.now();
+
+    const isErrorRetry = Boolean(job.lastError);
+    const delaySeconds = isErrorRetry
+      ? estimateErrorRetryDelaySeconds(job.errorAttempts)
+      : Math.max(1, job.successRetryDelaySeconds);
+    return job.updatedAt + delaySeconds * 1000;
   }
 
   function openEditModal(job: Job): void {
@@ -330,6 +363,7 @@ export function JobsPage() {
                   <Table.Th>Name</Table.Th>
                   <Table.Th>Customer</Table.Th>
                   <Table.Th>Status</Table.Th>
+                  <Table.Th>Next run</Table.Th>
                   <Table.Th>Error State</Table.Th>
                   <Table.Th>Attempts</Table.Th>
                   <Table.Th>Error Attempts</Table.Th>
@@ -337,19 +371,38 @@ export function JobsPage() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {jobs.map((job) => (
-                  <Table.Tr
-                    key={job.id}
-                    onClick={() => setSelectedJobId(job.id)}
-                    style={{ cursor: "pointer" }}
-                    bg={selectedJobId === job.id ? "var(--mantine-color-blue-light)" : undefined}
-                  >
+                {jobs.map((job) => {
+                  const nextRunAt = getNextRunAt(job);
+                  return (
+                    <Table.Tr
+                      key={job.id}
+                      onClick={() => setSelectedJobId(job.id)}
+                      style={{ cursor: "pointer" }}
+                      bg={
+                        selectedJobId === job.id ? "var(--mantine-color-blue-light)" : undefined
+                      }
+                    >
                     <Table.Td>{job.name}</Table.Td>
                     <Table.Td>{job.customerName}</Table.Td>
                     <Table.Td>
                       <Badge color={getStatusColor(job.status)} variant="light">
                         {job.status}
                       </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      {nextRunAt == null ? (
+                        <Text size="sm" c="dimmed">
+                          -
+                        </Text>
+                      ) : (
+                        <Text size="sm">
+                          {formatDate(nextRunAt)}
+                          <br />
+                          <Text span size="xs" c="dimmed">
+                            {formatRelative(nextRunAt)}
+                          </Text>
+                        </Text>
+                      )}
                     </Table.Td>
                     <Table.Td>
                       {job.errorAttempts > 0 && job.status === "pending" ? (
@@ -379,8 +432,9 @@ export function JobsPage() {
                         Edit
                       </Button>
                     </Table.Td>
-                  </Table.Tr>
-                ))}
+                    </Table.Tr>
+                  );
+                })}
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
