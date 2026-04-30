@@ -56,6 +56,7 @@ export async function fetchJobs(input?: {
 export async function createJob(input: {
   customerId: string;
   name: string;
+  descriptionNote?: string | null;
   url: string;
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   payload: unknown | null;
@@ -74,14 +75,16 @@ export async function createJob(input: {
 export async function updateJob(
   jobId: string,
   input: {
-    name: string;
-    url: string;
-    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-    payload: unknown | null;
-    headers: Record<string, string> | null;
-    errorAttemptLimit: number;
-    successLimit: number;
-    successRetryDelaySeconds: number;
+    name?: string;
+    descriptionNote?: string | null;
+    status?: "pending" | "running" | "done" | "failed" | "paused";
+    url?: string;
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    payload?: unknown | null;
+    headers?: Record<string, string> | null;
+    errorAttemptLimit?: number;
+    successLimit?: number;
+    successRetryDelaySeconds?: number;
   },
 ): Promise<{ job: Job }> {
   return request<{ job: Job }>(`/observability/jobs/${encodeURIComponent(jobId)}`, {

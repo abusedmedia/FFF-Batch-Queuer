@@ -18,13 +18,10 @@ import {
   createCustomer,
   deleteCustomer,
   fetchCustomers,
+  fetchJobs,
   updateCustomer,
 } from "../api";
 import type { Customer } from "../types";
-
-function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleString();
-}
 
 function getCustomerStatusColor(isActive: boolean): string {
   return isActive ? "green" : "gray";
@@ -32,6 +29,9 @@ function getCustomerStatusColor(isActive: boolean): string {
 
 export function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [jobCountsByCustomer, setJobCountsByCustomer] = useState<Record<string, number>>(
+    {},
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -52,8 +52,15 @@ export function CustomersPage() {
   function loadCustomers(): Promise<void> {
     setLoading(true);
     setError(null);
-    return fetchCustomers()
-      .then(setCustomers)
+    return Promise.all([fetchCustomers(), fetchJobs()])
+      .then(([customerRows, { jobs }]) => {
+        setCustomers(customerRows);
+        const counts = jobs.reduce<Record<string, number>>((acc, job) => {
+          acc[job.customerId] = (acc[job.customerId] ?? 0) + 1;
+          return acc;
+        }, {});
+        setJobCountsByCustomer(counts);
+      })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
   }
@@ -176,7 +183,7 @@ export function CustomersPage() {
               <Table.Tr>
                 <Table.Th>Name</Table.Th>
                 <Table.Th>Status</Table.Th>
-                <Table.Th>Created</Table.Th>
+                <Table.Th>Number of jobs</Table.Th>
                 <Table.Th />
               </Table.Tr>
             </Table.Thead>
@@ -189,7 +196,7 @@ export function CustomersPage() {
                       {customer.isActive ? "Active" : "Inactive"}
                     </Badge>
                   </Table.Td>
-                  <Table.Td>{formatDate(customer.createdAt)}</Table.Td>
+                  <Table.Td>{jobCountsByCustomer[customer.id] ?? 0}</Table.Td>
                   <Table.Td>
                     <Button variant="light" onClick={() => openEditModal(customer)}>
                       Edit

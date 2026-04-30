@@ -11,11 +11,12 @@ export interface Job {
   customerId: string;
   customerName: string;
   name: string;
+  descriptionNote: string | null;
   url: string;
   method: string;
   payload: unknown;
   headers: Record<string, string> | null;
-  status: "pending" | "running" | "done" | "failed";
+  status: "pending" | "running" | "done" | "failed" | "paused";
   attempts: number;
   errorAttempts: number;
   errorAttemptLimit: number;

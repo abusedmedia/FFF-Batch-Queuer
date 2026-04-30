@@ -30,6 +30,8 @@ function getStatusColor(status: Job["status"]): string {
       return "green";
     case "failed":
       return "red";
+    case "paused":
+      return "gray";
   }
 }
 
@@ -51,6 +53,7 @@ export function JobsPage() {
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [modalName, setModalName] = useState("");
+  const [modalDescriptionNote, setModalDescriptionNote] = useState("");
   const [modalUrl, setModalUrl] = useState("");
   const [modalMethod, setModalMethod] = useState<string>("POST");
   const [modalPayload, setModalPayload] = useState("");
@@ -109,6 +112,7 @@ export function JobsPage() {
     setModalCustomerId(job.customerId);
     setSaveError(null);
     setModalName(job.name);
+    setModalDescriptionNote(job.descriptionNote ?? "");
     setModalUrl(job.url);
     setModalMethod(job.method);
     setModalPayload(job.payload == null ? "" : JSON.stringify(job.payload, null, 2));
@@ -125,6 +129,7 @@ export function JobsPage() {
     setModalCustomerId(selectedCustomerId ?? customerOptions[0]?.value ?? null);
     setSaveError(null);
     setModalName("");
+    setModalDescriptionNote("");
     setModalUrl("");
     setModalMethod("POST");
     setModalPayload("");
@@ -173,6 +178,8 @@ export function JobsPage() {
           : (JSON.parse(modalHeaders) as Record<string, string>);
 
       const method = modalMethod as "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+      const descriptionNote =
+        modalDescriptionNote.trim().length > 0 ? modalDescriptionNote.trim() : null;
       if (modalMode === "create") {
         if (!modalCustomerId) {
           throw new Error("Customer is required");
@@ -180,6 +187,7 @@ export function JobsPage() {
         const result = await createJob({
           customerId: modalCustomerId,
           name: modalName.trim(),
+          descriptionNote,
           url: modalUrl.trim(),
           method,
           payload: parsedPayload,
@@ -197,6 +205,7 @@ export function JobsPage() {
         if (!editingJob) return;
         const result = await updateJob(editingJob.id, {
           name: modalName.trim(),
+          descriptionNote,
           url: modalUrl.trim(),
           method,
           payload: parsedPayload,
@@ -217,6 +226,21 @@ export function JobsPage() {
             ? "Failed to create job"
             : "Failed to update job";
       setSaveError(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onSetJobStatus(status: "paused" | "pending"): Promise<void> {
+    if (!editingJob) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const result = await updateJob(editingJob.id, { status });
+      setEditingJob((prev) => (prev ? { ...prev, ...result.job } : prev));
+      setReloadToken((value) => value + 1);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : `Failed to set status to ${status}`);
     } finally {
       setSaving(false);
     }
@@ -352,6 +376,16 @@ export function JobsPage() {
           />
         </Group>
         <Group mt="sm" grow align="start">
+          <Textarea
+            label="description_note"
+            minRows={3}
+            autosize
+            value={modalDescriptionNote}
+            onChange={(event) => setModalDescriptionNote(event.currentTarget.value)}
+            disabled={saving || deleting}
+          />
+        </Group>
+        <Group mt="sm" grow align="start">
           <Select
             label="method"
             data={["GET", "POST", "PUT", "PATCH", "DELETE"]}
@@ -430,6 +464,30 @@ export function JobsPage() {
           </Alert>
         )}
         <Group justify="flex-end" mt="md">
+          {modalMode === "edit" && editingJob?.status !== "paused" && (
+            <Button
+              color="gray"
+              variant="light"
+              onClick={() => void onSetJobStatus("paused")}
+              loading={saving}
+              disabled={deleting}
+              mr="auto"
+            >
+              Pause job
+            </Button>
+          )}
+          {modalMode === "edit" && editingJob?.status === "paused" && (
+            <Button
+              color="blue"
+              variant="light"
+              onClick={() => void onSetJobStatus("pending")}
+              loading={saving}
+              disabled={deleting}
+              mr="auto"
+            >
+              Restore job
+            </Button>
+          )}
           {modalMode === "edit" && (
             <Button
               color="red"
@@ -437,7 +495,6 @@ export function JobsPage() {
               onClick={() => void onDeleteJob()}
               loading={deleting}
               disabled={saving}
-              mr="auto"
             >
               Delete job
             </Button>

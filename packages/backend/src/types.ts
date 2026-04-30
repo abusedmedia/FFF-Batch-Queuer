@@ -8,7 +8,7 @@ export interface Env {
   RECOVERY_PENDING_BOOT_REQUEUE_LIMIT?: string;
 }
 
-export type JobStatus = "pending" | "running" | "done" | "failed";
+export type JobStatus = "pending" | "running" | "done" | "failed" | "paused";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -21,6 +21,7 @@ export interface JobRow {
   id: string;
   customer_id: string;
   name: string;
+  description_note: string | null;
   url: string;
   method: HttpMethod;
   payload: string | null;
@@ -43,6 +44,7 @@ export interface JobRow {
 export interface JobInput {
   customerId: string;
   name: string;
+  descriptionNote?: string | null;
   url: string;
   method: HttpMethod;
   payload?: unknown;
@@ -50,6 +52,14 @@ export interface JobInput {
   errorAttemptLimit?: number;
   successLimit?: number;
   successRetryDelaySeconds?: number;
+}
+
+export interface RunRow {
+  id: string;
+  job_id: string;
+  run_at: number;
+  response_status: number | null;
+  response_payload: string | null;
 }
 
 export const QUEUE_NAMES = {

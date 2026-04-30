@@ -22,10 +22,11 @@ import {
 import type { CustomerRow, Env, JobRow, JobStatus } from "./types";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
-const JOB_STATUSES = ["pending", "running", "done", "failed"] as const;
+const JOB_STATUSES = ["pending", "running", "done", "failed", "paused"] as const;
 
 const createJobSchema = z.object({
   name: z.string().min(1).max(200),
+  descriptionNote: z.string().trim().max(4000).nullable().optional(),
   url: z.string().url(),
   method: z.enum(HTTP_METHODS).default("POST"),
   payload: z.unknown().nullable().optional(),
@@ -64,6 +65,7 @@ const createCustomerSchema = z.object({
 const createObservabilityJobSchema = z.object({
   customerId: z.string().min(1),
   name: z.string().min(1).max(200),
+  descriptionNote: z.string().trim().max(4000).nullable().optional(),
   url: z.string().url(),
   method: z.enum(HTTP_METHODS).default("POST"),
   payload: z.unknown().nullable().optional(),
@@ -83,6 +85,8 @@ const createObservabilityJobSchema = z.object({
 
 const updateObservabilityJobSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
+  descriptionNote: z.string().trim().max(4000).nullable().optional(),
+  status: z.enum(JOB_STATUSES).optional(),
   url: z.string().url().optional(),
   method: z.enum(HTTP_METHODS).optional(),
   payload: z.unknown().nullable().optional(),
@@ -105,6 +109,7 @@ interface SerializedJob {
   id: string;
   customerId: string;
   name: string;
+  descriptionNote: string | null;
   url: string;
   method: string;
   payload: unknown;
@@ -142,6 +147,7 @@ function serialize(row: JobRow): SerializedJob {
     id: row.id,
     customerId: row.customer_id,
     name: row.name,
+    descriptionNote: row.description_note,
     url: row.url,
     method: row.method,
     payload: row.payload == null ? null : safeParse(row.payload),
@@ -419,6 +425,7 @@ app.post("/observability/jobs", async (c) => {
   const row = await insertJob(c.env.DB, id, {
     customerId: parsed.data.customerId,
     name: parsed.data.name,
+    descriptionNote: parsed.data.descriptionNote,
     url: parsed.data.url,
     method: parsed.data.method,
     payload: parsed.data.payload ?? undefined,
@@ -463,6 +470,9 @@ app.patch("/observability/jobs/:id", async (c) => {
   const id = c.req.param("id");
   const existing = await getJob(c.env.DB, id);
   if (!existing) return c.json({ error: "not found" }, 404);
+  if (parsed.data.status === "running") {
+    return c.json({ error: "status cannot be manually set to running" }, 400);
+  }
 
   const updated = await updateJobForObservability(c.env.DB, id, {
     ...parsed.data,
@@ -521,6 +531,7 @@ app.post("/jobs", async (c) => {
   const row = await insertJob(c.env.DB, id, {
     customerId: customer.id,
     name: parsed.data.name,
+    descriptionNote: parsed.data.descriptionNote,
     url: parsed.data.url,
     method: parsed.data.method,
     payload: parsed.data.payload ?? undefined,
@@ -575,7 +586,7 @@ app.post("/jobs/:id/cancel", async (c) => {
   const id = c.req.param("id");
   const row = await getJob(c.env.DB, id, customer.id);
   if (!row) return c.json({ error: "not found" }, 404);
-  if (row.status === "done" || row.status === "failed") {
+  if (row.status === "done" || row.status === "failed" || row.status === "paused") {
     return c.json({ job: serialize(row), cancelled: false });
   }
   await markFailed(

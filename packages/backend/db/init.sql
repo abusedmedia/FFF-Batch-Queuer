@@ -20,6 +20,7 @@ CREATE TABLE jobs (
   id                           TEXT PRIMARY KEY,
   customer_id                  TEXT NOT NULL,
   name                         TEXT NOT NULL,
+  description_note             TEXT,
   url                          TEXT NOT NULL,
   method                       TEXT NOT NULL,
   payload                      TEXT,
@@ -46,3 +47,14 @@ CREATE INDEX idx_jobs_created_at ON jobs(created_at);
 CREATE INDEX idx_jobs_customer_id ON jobs(customer_id);
 CREATE INDEX idx_jobs_customer_status_created ON jobs(customer_id, status, created_at);
 CREATE INDEX idx_jobs_customer_status_updated ON jobs(customer_id, status, updated_at);
+
+CREATE TABLE runs (
+  id                TEXT PRIMARY KEY,
+  job_id             TEXT NOT NULL,
+  run_at             INTEGER NOT NULL,
+  response_status    INTEGER,
+  response_payload   TEXT,
+  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_runs_job_id_run_at ON runs(job_id, run_at DESC);

@@ -3,6 +3,7 @@ import {
   getJob,
   incrementErrorAttempts,
   incrementSuccessCount,
+  insertRun,
   markDone,
   markFailed,
   markPendingForRetry,
@@ -142,7 +143,11 @@ export async function processJobMessage(
     msg.ack();
     return;
   }
-  if (existing.status === "done" || existing.status === "failed") {
+  if (
+    existing.status === "done" ||
+    existing.status === "failed" ||
+    existing.status === "paused"
+  ) {
     msg.ack();
     return;
   }
@@ -154,6 +159,11 @@ export async function processJobMessage(
   }
 
   const outcome = await callTarget(existing);
+  await insertRun(env.DB, {
+    jobId,
+    responseStatus: outcome.status,
+    responsePayload: outcome.body,
+  });
 
   if (isStop(outcome.parsed)) {
     await markDone(
@@ -264,7 +274,11 @@ export async function processDlqMessage(
     msg.ack();
     return;
   }
-  if (existing.status === "done" || existing.status === "failed") {
+  if (
+    existing.status === "done" ||
+    existing.status === "failed" ||
+    existing.status === "paused"
+  ) {
     msg.ack();
     return;
   }

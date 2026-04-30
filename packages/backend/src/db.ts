@@ -1,4 +1,4 @@
-import type { CustomerRow, JobInput, JobRow, JobStatus } from "./types";
+import type { CustomerRow, JobInput, JobRow, JobStatus, RunRow } from "./types";
 import { MAX_BODY_SNAPSHOT_BYTES } from "./types";
 
 function now(): number {
@@ -25,15 +25,16 @@ export async function insertJob(
 
   await db
     .prepare(
-      `INSERT INTO jobs (id, customer_id, name, url, method, payload, headers, status,
+      `INSERT INTO jobs (id, customer_id, name, description_note, url, method, payload, headers, status,
                          attempts, error_attempts, max_attempts, success_count, success_limit,
                          success_retry_delay_seconds, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, 0, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, 0, ?, ?, ?, ?)`,
     )
     .bind(
       id,
       input.customerId,
       input.name,
+      input.descriptionNote ?? null,
       input.url,
       input.method,
       payload,
@@ -208,6 +209,8 @@ export async function updateJobForObservability(
   id: string,
   input: {
     name?: string;
+    descriptionNote?: string | null;
+    status?: JobStatus;
     url?: string;
     method?: JobRow["method"];
     payload?: unknown | null;
@@ -223,6 +226,20 @@ export async function updateJobForObservability(
   if (input.name !== undefined) {
     updates.push("name = ?");
     binds.push(input.name);
+  }
+  if (input.descriptionNote !== undefined) {
+    updates.push("description_note = ?");
+    binds.push(input.descriptionNote);
+  }
+  if (input.status !== undefined) {
+    updates.push("status = ?");
+    binds.push(input.status);
+    if (input.status === "paused" || input.status === "done" || input.status === "failed") {
+      updates.push("completed_at = ?");
+      binds.push(now());
+    } else if (input.status === "pending") {
+      updates.push("completed_at = NULL");
+    }
   }
   if (input.url !== undefined) {
     updates.push("url = ?");
@@ -331,6 +348,34 @@ export async function deleteJobById(db: D1Database, jobId: string): Promise<bool
     .bind(jobId)
     .run();
   return (result.meta.changes ?? 0) > 0;
+}
+
+export async function insertRun(
+  db: D1Database,
+  input: {
+    jobId: string;
+    responseStatus: number | null;
+    responsePayload: string | null;
+  },
+): Promise<RunRow> {
+  const id = crypto.randomUUID();
+  const runAt = now();
+  const row = await db
+    .prepare(
+      `INSERT INTO runs (id, job_id, run_at, response_status, response_payload)
+       VALUES (?, ?, ?, ?, ?)
+       RETURNING *`,
+    )
+    .bind(
+      id,
+      input.jobId,
+      runAt,
+      input.responseStatus,
+      truncate(input.responsePayload),
+    )
+    .first<RunRow>();
+  if (!row) throw new Error("insertRun: row missing after insert");
+  return row;
 }
 
 /**
