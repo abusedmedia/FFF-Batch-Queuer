@@ -19,6 +19,30 @@ interface FetchOutcome {
   error: string | null;
 }
 
+function isTextBasedContentType(contentType: string | null): boolean {
+  if (!contentType) return true;
+  const normalized = contentType.toLowerCase();
+  if (normalized.startsWith("text/")) return true;
+  return (
+    normalized.includes("application/json") ||
+    normalized.includes("application/xml") ||
+    normalized.includes("application/javascript") ||
+    normalized.includes("application/x-www-form-urlencoded") ||
+    normalized.includes("+json") ||
+    normalized.includes("+xml")
+  );
+}
+
+function getSnapshotBody(response: Response, rawText: string): string | null {
+  if (!isTextBasedContentType(response.headers.get("content-type"))) {
+    return null;
+  }
+  if (rawText.length <= MAX_BODY_SNAPSHOT_BYTES) {
+    return rawText;
+  }
+  return rawText.slice(0, MAX_BODY_SNAPSHOT_BYTES);
+}
+
 function parseHeaders(raw: string | null): Record<string, string> | undefined {
   if (!raw) return undefined;
   try {
@@ -81,10 +105,7 @@ async function callTarget(row: JobRow): Promise<FetchOutcome> {
     });
 
     const text = await res.text();
-    const trimmed =
-      text.length > MAX_BODY_SNAPSHOT_BYTES
-        ? text.slice(0, MAX_BODY_SNAPSHOT_BYTES)
-        : text;
+    const snapshotBody = getSnapshotBody(res, text);
     let parsed: unknown = undefined;
     try {
       parsed = text.length ? JSON.parse(text) : undefined;
@@ -94,7 +115,7 @@ async function callTarget(row: JobRow): Promise<FetchOutcome> {
 
     return {
       status: res.status,
-      body: trimmed,
+      body: snapshotBody,
       parsed,
       error: null,
     };

@@ -1,4 +1,4 @@
-import type { Customer, Job } from "./types";
+import type { Customer, Job, Run } from "./types";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.trim() || "http://127.0.0.1:8999";
@@ -98,6 +98,13 @@ export async function deleteJob(jobId: string): Promise<{ deleted: boolean }> {
   return request<{ deleted: boolean }>(`/observability/jobs/${encodeURIComponent(jobId)}`, {
     method: "DELETE",
   });
+}
+
+export async function fetchJobRuns(jobId: string): Promise<Run[]> {
+  const payload = await request<{ runs: Run[] }>(
+    `/observability/jobs/${encodeURIComponent(jobId)}/runs`,
+  );
+  return payload.runs;
 }
 
 export async function updateCustomer(

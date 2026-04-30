@@ -30,3 +30,11 @@ export interface Job {
   lastBody?: string | null;
   lastError?: string | null;
 }
+
+export interface Run {
+  id: string;
+  jobId: string;
+  runAt: number;
+  responseStatus: number | null;
+  responsePayload: string | null;
+}

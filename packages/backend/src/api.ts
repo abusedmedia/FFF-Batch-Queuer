@@ -12,6 +12,7 @@ import {
   getJob,
   hasResumableJobWithSameName,
   insertJob,
+  listRunsByJobId,
   listAllJobs,
   listCustomers,
   listJobs,
@@ -142,6 +143,14 @@ interface SerializedJobWithCustomer extends SerializedJob {
   customerName: string;
 }
 
+interface SerializedRun {
+  id: string;
+  jobId: string;
+  runAt: number;
+  responseStatus: number | null;
+  responsePayload: string | null;
+}
+
 function serialize(row: JobRow): SerializedJob {
   return {
     id: row.id,
@@ -185,6 +194,16 @@ function safeParse(value: string): unknown {
   } catch {
     return value;
   }
+}
+
+function serializeRun(row: { id: string; job_id: string; run_at: number; response_status: number | null; response_payload: string | null }): SerializedRun {
+  return {
+    id: row.id,
+    jobId: row.job_id,
+    runAt: row.run_at,
+    responseStatus: row.response_status,
+    responsePayload: row.response_payload,
+  };
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -479,6 +498,9 @@ app.patch("/observability/jobs/:id", async (c) => {
     errorAttemptLimit: parsed.data.errorAttemptLimit ?? parsed.data.maxAttempts,
   });
   if (!updated) return c.json({ error: "not found" }, 404);
+  if (parsed.data.status === "pending" && existing.status !== "pending") {
+    await c.env.JOB_QUEUE.send({ jobId: id, customerId: existing.customer_id });
+  }
   return c.json({ job: serialize(updated) });
 });
 
@@ -493,6 +515,17 @@ app.delete("/observability/jobs/:id", async (c) => {
 
   const deleted = await deleteJobById(c.env.DB, id);
   return c.json({ deleted });
+});
+
+app.get("/observability/jobs/:id/runs", async (c) => {
+  if (!hasObservabilityAccess(c)) {
+    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  }
+  const id = c.req.param("id");
+  const existing = await getJob(c.env.DB, id);
+  if (!existing) return c.json({ error: "not found" }, 404);
+  const runs = await listRunsByJobId(c.env.DB, id);
+  return c.json({ runs: runs.map(serializeRun) });
 });
 
 app.post("/jobs", async (c) => {

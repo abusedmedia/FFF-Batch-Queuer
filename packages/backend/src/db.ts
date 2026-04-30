@@ -378,6 +378,25 @@ export async function insertRun(
   return row;
 }
 
+export async function listRunsByJobId(
+  db: D1Database,
+  jobId: string,
+  limit = 100,
+): Promise<RunRow[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 500);
+  const result = await db
+    .prepare(
+      `SELECT *
+       FROM runs
+       WHERE job_id = ?
+       ORDER BY run_at DESC
+       LIMIT ?`,
+    )
+    .bind(jobId, safeLimit)
+    .all<RunRow>();
+  return result.results ?? [];
+}
+
 /**
  * Atomically increments the attempt counter and flips the row to running.
  * Returns the new attempt count, or null if the row no longer exists or is

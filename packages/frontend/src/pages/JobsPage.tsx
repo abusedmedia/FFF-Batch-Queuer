@@ -17,8 +17,15 @@ import {
 } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { createJob, deleteJob, fetchCustomers, fetchJobs, updateJob } from "../api";
-import type { Customer, Job } from "../types";
+import {
+  createJob,
+  deleteJob,
+  fetchCustomers,
+  fetchJobRuns,
+  fetchJobs,
+  updateJob,
+} from "../api";
+import type { Customer, Job, Run } from "../types";
 
 function getStatusColor(status: Job["status"]): string {
   switch (status) {
@@ -63,6 +70,10 @@ export function JobsPage() {
   const [modalSuccessRetryDelaySeconds, setModalSuccessRetryDelaySeconds] =
     useState<number>(30);
   const [reloadToken, setReloadToken] = useState(0);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [runs, setRuns] = useState<Run[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsError, setRunsError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -79,10 +90,33 @@ export function JobsPage() {
         setCustomers(customerRows);
         setJobs(jobsResult.jobs);
         setTotalJobs(jobsResult.total);
+        if (
+          selectedJobId &&
+          !jobsResult.jobs.some((job) => job.id === selectedJobId)
+        ) {
+          setSelectedJobId(null);
+          setRuns([]);
+          setRunsError(null);
+        }
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [selectedCustomerId, page, pageSize, reloadToken]);
+  }, [selectedCustomerId, page, pageSize, reloadToken, selectedJobId]);
+
+  useEffect(() => {
+    if (!selectedJobId) {
+      setRuns([]);
+      setRunsError(null);
+      setRunsLoading(false);
+      return;
+    }
+    setRunsLoading(true);
+    setRunsError(null);
+    fetchJobRuns(selectedJobId)
+      .then((rows) => setRuns(rows))
+      .catch((err: Error) => setRunsError(err.message))
+      .finally(() => setRunsLoading(false));
+  }, [selectedJobId]);
 
   const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize));
 
@@ -200,7 +234,8 @@ export function JobsPage() {
           setPage(1);
           setReloadToken((value) => value + 1);
         }
-        closeModal();
+        setModalOpened(false);
+        setEditingJob(null);
       } else {
         if (!editingJob) return;
         const result = await updateJob(editingJob.id, {
@@ -217,6 +252,8 @@ export function JobsPage() {
 
         setEditingJob((prev) => (prev ? { ...prev, ...result.job } : prev));
         setReloadToken((value) => value + 1);
+        setModalOpened(false);
+        setEditingJob(null);
       }
     } catch (err) {
       const message =
@@ -293,6 +330,7 @@ export function JobsPage() {
                   <Table.Th>Name</Table.Th>
                   <Table.Th>Customer</Table.Th>
                   <Table.Th>Status</Table.Th>
+                  <Table.Th>Error State</Table.Th>
                   <Table.Th>Attempts</Table.Th>
                   <Table.Th>Error Attempts</Table.Th>
                   <Table.Th>Edit</Table.Th>
@@ -300,7 +338,12 @@ export function JobsPage() {
               </Table.Thead>
               <Table.Tbody>
                 {jobs.map((job) => (
-                  <Table.Tr key={job.id}>
+                  <Table.Tr
+                    key={job.id}
+                    onClick={() => setSelectedJobId(job.id)}
+                    style={{ cursor: "pointer" }}
+                    bg={selectedJobId === job.id ? "var(--mantine-color-blue-light)" : undefined}
+                  >
                     <Table.Td>{job.name}</Table.Td>
                     <Table.Td>{job.customerName}</Table.Td>
                     <Table.Td>
@@ -308,10 +351,31 @@ export function JobsPage() {
                         {job.status}
                       </Badge>
                     </Table.Td>
+                    <Table.Td>
+                      {job.errorAttempts > 0 && job.status === "pending" ? (
+                        <Badge color="orange" variant="light">
+                          Retrying ({job.errorAttempts}/{job.errorAttemptLimit})
+                        </Badge>
+                      ) : job.errorAttempts > 0 ? (
+                        <Badge color="yellow" variant="light">
+                          Had errors ({job.errorAttempts}/{job.errorAttemptLimit})
+                        </Badge>
+                      ) : (
+                        <Badge color="green" variant="light">
+                          Clean
+                        </Badge>
+                      )}
+                    </Table.Td>
                     <Table.Td>{job.attempts}</Table.Td>
                     <Table.Td>{job.errorAttempts}</Table.Td>
                     <Table.Td>
-                      <Button variant="light" onClick={() => openEditModal(job)}>
+                      <Button
+                        variant="light"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openEditModal(job);
+                        }}
+                      >
                         Edit
                       </Button>
                     </Table.Td>
@@ -338,6 +402,47 @@ export function JobsPage() {
               <Pagination value={page} onChange={setPage} total={totalPages} />
             </Group>
           </Group>
+        </>
+      )}
+      {selectedJobId && (
+        <>
+          <Group justify="space-between" mt="xl" mb="sm">
+            <Title order={4}>Runs</Title>
+            <Text size="sm" c="dimmed">
+              {runs.length} run{runs.length === 1 ? "" : "s"}
+            </Text>
+          </Group>
+          {runsLoading && <Loader size="sm" />}
+          {runsError && <Alert color="red">{runsError}</Alert>}
+          {!runsLoading && !runsError && runs.length === 0 && (
+            <Text c="dimmed">No runs found for the selected job.</Text>
+          )}
+          {!runsLoading && !runsError && runs.length > 0 && (
+            <Table.ScrollContainer minWidth={760}>
+              <Table striped withTableBorder>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Run At</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Response Payload</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {runs.map((run) => (
+                    <Table.Tr key={run.id}>
+                      <Table.Td>{formatDate(run.runAt)}</Table.Td>
+                      <Table.Td>{run.responseStatus ?? "-"}</Table.Td>
+                      <Table.Td>
+                        <Text size="sm" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                          {run.responsePayload ?? "-"}
+                        </Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          )}
         </>
       )}
 
