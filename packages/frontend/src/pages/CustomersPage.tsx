@@ -185,7 +185,7 @@ export function CustomersPage() {
               <Table.Tr>
                 <Table.Th>Name</Table.Th>
                 <Table.Th>Status</Table.Th>
-                <Table.Th>Number of jobs</Table.Th>
+                <Table.Th>Jobs</Table.Th>
                 <Table.Th />
               </Table.Tr>
             </Table.Thead>

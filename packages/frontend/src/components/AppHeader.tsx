@@ -19,7 +19,7 @@ export function AppHeader({
           size="sm"
           aria-label="Toggle navigation"
         />
-        <Title order={4}>Batch Queuer Observability</Title>
+        <Title order={4}>FFF Batch Queuer</Title>
       </Group>
       <Text c="dimmed" size="sm">
         Admin Console

@@ -16,7 +16,7 @@ import {
   Title,
 } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   createJob,
@@ -84,7 +84,7 @@ export function JobsPage() {
   const [modalSuccessRetryDelaySeconds, setModalSuccessRetryDelaySeconds] =
     useState<number>(30);
   const [reloadToken, setReloadToken] = useState(0);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [runsError, setRunsError] = useState<string | null>(null);
@@ -105,20 +105,21 @@ export function JobsPage() {
         setJobs(jobsResult.jobs);
         setTotalJobs(jobsResult.total);
         if (
-          selectedJobId &&
-          !jobsResult.jobs.some((job) => job.id === selectedJobId)
+          expandedJobId &&
+          !jobsResult.jobs.some((job) => job.id === expandedJobId)
         ) {
-          setSelectedJobId(null);
+          setExpandedJobId(null);
           setRuns([]);
           setRunsError(null);
+          setRunsLoading(false);
         }
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [selectedCustomerId, page, pageSize, reloadToken, selectedJobId]);
+  }, [selectedCustomerId, page, pageSize, reloadToken, expandedJobId]);
 
   useEffect(() => {
-    if (!selectedJobId) {
+    if (!expandedJobId) {
       setRuns([]);
       setRunsError(null);
       setRunsLoading(false);
@@ -126,11 +127,11 @@ export function JobsPage() {
     }
     setRunsLoading(true);
     setRunsError(null);
-    fetchJobRuns(selectedJobId)
+    fetchJobRuns(expandedJobId)
       .then((rows) => setRuns(rows))
       .catch((err: Error) => setRunsError(err.message))
       .finally(() => setRunsLoading(false));
-  }, [selectedJobId]);
+  }, [expandedJobId]);
 
   const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize));
 
@@ -394,73 +395,125 @@ export function JobsPage() {
                   <Table.Th>Next run</Table.Th>
                   <Table.Th>Error State</Table.Th>
                   <Table.Th>Attempts</Table.Th>
-                  <Table.Th>Error Attempts</Table.Th>
-                  <Table.Th>Edit</Table.Th>
+                  <Table.Th>Errors</Table.Th>
+                  <Table.Th></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 {jobs.map((job) => {
                   const nextRunAt = getNextRunAt(job);
+                  const isExpanded = expandedJobId === job.id;
                   return (
-                    <Table.Tr
-                      key={job.id}
-                      onClick={() => setSelectedJobId(job.id)}
-                      style={{ cursor: "pointer" }}
-                      bg={
-                        selectedJobId === job.id ? "var(--mantine-color-blue-light)" : undefined
-                      }
-                    >
-                    <Table.Td>{job.name}</Table.Td>
-                    <Table.Td>{job.customerName}</Table.Td>
-                    <Table.Td>
-                      <Badge color={getStatusColor(job.status)} variant="light">
-                        {job.status}
-                      </Badge>
-                    </Table.Td>
-                    <Table.Td>
-                      {nextRunAt == null ? (
-                        <Text size="sm" c="dimmed">
-                          -
-                        </Text>
-                      ) : (
-                        <Text size="sm">
-                          {formatDate(nextRunAt)}
-                          <br />
-                          <Text span size="xs" c="dimmed">
-                            {formatRelative(nextRunAt)}
-                          </Text>
-                        </Text>
-                      )}
-                    </Table.Td>
-                    <Table.Td>
-                      {job.errorAttempts > 0 && job.status === "pending" ? (
-                        <Badge color="orange" variant="light">
-                          Retrying ({job.errorAttempts}/{job.errorAttemptLimit})
-                        </Badge>
-                      ) : job.errorAttempts > 0 ? (
-                        <Badge color="yellow" variant="light">
-                          Had errors ({job.errorAttempts}/{job.errorAttemptLimit})
-                        </Badge>
-                      ) : (
-                        <Badge color="green" variant="light">
-                          Clean
-                        </Badge>
-                      )}
-                    </Table.Td>
-                    <Table.Td>{job.attempts}</Table.Td>
-                    <Table.Td>{job.errorAttempts}</Table.Td>
-                    <Table.Td>
-                      <Button
-                        variant="light"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openEditModal(job);
-                        }}
+                    <Fragment key={job.id}>
+                      <Table.Tr
+                        style={{ cursor: "pointer" }}
+                        bg={isExpanded ? "var(--mantine-color-blue-light)" : undefined}
+                        onClick={() =>
+                          setExpandedJobId((current) => (current === job.id ? null : job.id))
+                        }
                       >
-                        Edit
-                      </Button>
-                    </Table.Td>
-                    </Table.Tr>
+                        <Table.Td>{job.name}</Table.Td>
+                        <Table.Td>{job.customerName}</Table.Td>
+                        <Table.Td>
+                          <Badge color={getStatusColor(job.status)} variant="light">
+                            {job.status}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td>
+                          {nextRunAt == null ? (
+                            <Text size="sm" c="dimmed">
+                              -
+                            </Text>
+                          ) : (
+                            <Text size="sm">
+                              {formatDate(nextRunAt)}
+                              <br />
+                              <Text span size="xs" c="dimmed">
+                                {formatRelative(nextRunAt)}
+                              </Text>
+                            </Text>
+                          )}
+                        </Table.Td>
+                        <Table.Td>
+                          {job.errorAttempts > 0 && job.status === "pending" ? (
+                            <Badge color="orange" variant="light">
+                              Retrying ({job.errorAttempts}/{job.errorAttemptLimit})
+                            </Badge>
+                          ) : job.errorAttempts > 0 ? (
+                            <Badge color="yellow" variant="light">
+                              Had errors ({job.errorAttempts}/{job.errorAttemptLimit})
+                            </Badge>
+                          ) : (
+                            <Badge color="green" variant="light">
+                              Clean
+                            </Badge>
+                          )}
+                        </Table.Td>
+                        <Table.Td>{job.attempts}</Table.Td>
+                        <Table.Td>{job.errorAttempts}</Table.Td>
+                        <Table.Td>
+                          <Button
+                            variant="light"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openEditModal(job);
+                            }}
+                          >
+                            Edit
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+                      {isExpanded && (
+                        <Table.Tr>
+                          <Table.Td colSpan={8}>
+                            <Text size="sm" fw={600} mb="xs">
+                              Runs ({runs.length})
+                            </Text>
+                            {runsLoading && <Loader size="sm" />}
+                            {!runsLoading && runsError && <Alert color="red">{runsError}</Alert>}
+                            {!runsLoading && !runsError && runs.length === 0 && (
+                              <Text size="sm" c="dimmed">
+                                No runs found.
+                              </Text>
+                            )}
+                            {!runsLoading && !runsError && runs.length > 0 && (
+                              <Table.ScrollContainer minWidth={760}>
+                                <Table striped withTableBorder>
+                                  <Table.Thead>
+                                    <Table.Tr>
+                                      <Table.Th>Run At</Table.Th>
+                                      <Table.Th>Status</Table.Th>
+                                      <Table.Th>Request Time</Table.Th>
+                                      <Table.Th>Response Payload</Table.Th>
+                                    </Table.Tr>
+                                  </Table.Thead>
+                                  <Table.Tbody>
+                                    {runs.map((run) => (
+                                      <Table.Tr key={run.id}>
+                                        <Table.Td>{formatDate(run.runAt)}</Table.Td>
+                                        <Table.Td>{run.responseStatus ?? "-"}</Table.Td>
+                                        <Table.Td>{formatDuration(run.requestDurationMs)}</Table.Td>
+                                        <Table.Td>
+                                          <Text
+                                            size="sm"
+                                            style={{
+                                              whiteSpace: "pre-wrap",
+                                              wordBreak: "break-word",
+                                            }}
+                                          >
+                                            {run.responsePayload ?? "-"}
+                                          </Text>
+                                        </Table.Td>
+                                      </Table.Tr>
+                                    ))}
+                                  </Table.Tbody>
+                                </Table>
+                              </Table.ScrollContainer>
+                            )}
+                          </Table.Td>
+                        </Table.Tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </Table.Tbody>
@@ -486,50 +539,6 @@ export function JobsPage() {
           </Group>
         </>
       )}
-      {selectedJobId && (
-        <>
-          <Group justify="space-between" mt="xl" mb="sm">
-            <Title order={4}>Runs</Title>
-            <Text size="sm" c="dimmed">
-              {runs.length} run{runs.length === 1 ? "" : "s"}
-            </Text>
-          </Group>
-          {runsLoading && <Loader size="sm" />}
-          {runsError && <Alert color="red">{runsError}</Alert>}
-          {!runsLoading && !runsError && runs.length === 0 && (
-            <Text c="dimmed">No runs found for the selected job.</Text>
-          )}
-          {!runsLoading && !runsError && runs.length > 0 && (
-            <Table.ScrollContainer minWidth={760}>
-              <Table striped withTableBorder>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Run At</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th>Request Time</Table.Th>
-                    <Table.Th>Response Payload</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {runs.map((run) => (
-                    <Table.Tr key={run.id}>
-                      <Table.Td>{formatDate(run.runAt)}</Table.Td>
-                      <Table.Td>{run.responseStatus ?? "-"}</Table.Td>
-                      <Table.Td>{formatDuration(run.requestDurationMs)}</Table.Td>
-                      <Table.Td>
-                        <Text size="sm" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                          {run.responsePayload ?? "-"}
-                        </Text>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          )}
-        </>
-      )}
-
       <Modal
         opened={modalOpened}
         onClose={closeModal}
