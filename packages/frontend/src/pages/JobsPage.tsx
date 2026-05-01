@@ -395,7 +395,6 @@ export function JobsPage() {
                   <Table.Th>Next run</Table.Th>
                   <Table.Th>Error State</Table.Th>
                   <Table.Th>Attempts</Table.Th>
-                  <Table.Th>Errors</Table.Th>
                   <Table.Th></Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -450,7 +449,6 @@ export function JobsPage() {
                           )}
                         </Table.Td>
                         <Table.Td>{job.attempts}</Table.Td>
-                        <Table.Td>{job.errorAttempts}</Table.Td>
                         <Table.Td>
                           <Button
                             variant="light"
@@ -465,7 +463,7 @@ export function JobsPage() {
                       </Table.Tr>
                       {isExpanded && (
                         <Table.Tr>
-                          <Table.Td colSpan={8}>
+                          <Table.Td colSpan={7}>
                             <Text size="sm" fw={600} mb="xs">
                               Runs ({runs.length})
                             </Text>

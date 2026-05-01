@@ -31,9 +31,9 @@ function getCustomerStatusColor(isActive: boolean): string {
 export function CustomersPage() {
   const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [jobCountsByCustomer, setJobCountsByCustomer] = useState<Record<string, number>>(
-    {},
-  );
+  const [jobCountsByCustomer, setJobCountsByCustomer] = useState<
+    Record<string, { active: number; total: number }>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -57,10 +57,18 @@ export function CustomersPage() {
     return Promise.all([fetchCustomers(), fetchJobs()])
       .then(([customerRows, { jobs }]) => {
         setCustomers(customerRows);
-        const counts = jobs.reduce<Record<string, number>>((acc, job) => {
-          acc[job.customerId] = (acc[job.customerId] ?? 0) + 1;
-          return acc;
-        }, {});
+        const counts = jobs.reduce<Record<string, { active: number; total: number }>>(
+          (acc, job) => {
+            const current = acc[job.customerId] ?? { active: 0, total: 0 };
+            const isActive = job.status === "pending" || job.status === "running";
+            acc[job.customerId] = {
+              active: current.active + (isActive ? 1 : 0),
+              total: current.total + 1,
+            };
+            return acc;
+          },
+          {},
+        );
         setJobCountsByCustomer(counts);
       })
       .catch((err: Error) => setError(err.message))
@@ -202,7 +210,9 @@ export function CustomersPage() {
                       {customer.isActive ? "Active" : "Inactive"}
                     </Badge>
                   </Table.Td>
-                  <Table.Td>{jobCountsByCustomer[customer.id] ?? 0}</Table.Td>
+                  <Table.Td>
+                    {`${jobCountsByCustomer[customer.id]?.active ?? 0}/${jobCountsByCustomer[customer.id]?.total ?? 0}`}
+                  </Table.Td>
                   <Table.Td>
                     <Button
                       variant="light"
