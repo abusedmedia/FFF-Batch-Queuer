@@ -11,6 +11,10 @@ keeps re-calling the target URL with two independent limits:
 plus a payload-level override where `{ "stop": true }` immediately marks the
 job `done`.
 
+![](01.png)
+
+![](02.png)
+
 ## Architecture
 
 One Worker, two roles:
@@ -94,13 +98,6 @@ npm run db:init:local
 npm run db:init:remote
 ```
 
-If your database already exists and you are upgrading, apply this migration too:
-
-```bash
-npx wrangler d1 execute fff-batch-queuer --local --command "ALTER TABLE runs ADD COLUMN request_duration_ms INTEGER;"
-npx wrangler d1 execute fff-batch-queuer --remote --command "ALTER TABLE runs ADD COLUMN request_duration_ms INTEGER;"
-```
-
 ## Run locally
 
 ```bash
@@ -114,16 +111,6 @@ consumer runs in the same process as the API.
 
 `x-client-token` is the credential. The service hashes it with SHA-256 and
 looks up an active row in `customers(token_hash)`.
-
-Create a customer by inserting a pre-hashed token:
-
-```bash
-TOKEN="client_abc_123"
-HASH=$(printf '%s' "$TOKEN" | shasum -a 256 | awk '{print $1}')
-npx wrangler d1 execute fff-batch-queuer --remote --command \
-"INSERT INTO customers (id,name,token_hash,is_active,created_at,updated_at)
- VALUES ('cust_demo','Demo customer','$HASH',1,strftime('%s','now')*1000,strftime('%s','now')*1000);"
-```
 
 Use `TOKEN` as `x-client-token` in API calls.
 
