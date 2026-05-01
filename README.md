@@ -1,6 +1,8 @@
-# fff-batch-queuer
+# FFF Batch Queuer
 
-A Cloudflare Worker that accepts HTTP job definitions, stores them in D1, and
+If you need to call an endpoint multiple times, following a given policy, able to automatically stop at some point, this software might be useful for you.
+
+A Cloudflare-based Worker+App that accepts HTTP job definitions, stores them in D1, and
 keeps re-calling the target URL with two independent limits:
 
 - an **error attempt limit** (for non-2xx/fetch failures/payloads with `error`),
@@ -90,6 +92,13 @@ Initialize schema locally and remotely:
 ```bash
 npm run db:init:local
 npm run db:init:remote
+```
+
+If your database already exists and you are upgrading, apply this migration too:
+
+```bash
+npx wrangler d1 execute fff-batch-queuer --local --command "ALTER TABLE runs ADD COLUMN request_duration_ms INTEGER;"
+npx wrangler d1 execute fff-batch-queuer --remote --command "ALTER TABLE runs ADD COLUMN request_duration_ms INTEGER;"
 ```
 
 ## Run locally

@@ -37,4 +37,5 @@ export interface Run {
   runAt: number;
   responseStatus: number | null;
   responsePayload: string | null;
+  requestDurationMs: number | null;
 }

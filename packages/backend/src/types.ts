@@ -60,6 +60,7 @@ export interface RunRow {
   run_at: number;
   response_status: number | null;
   response_payload: string | null;
+  request_duration_ms: number | null;
 }
 
 export const QUEUE_NAMES = {

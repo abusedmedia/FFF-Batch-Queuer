@@ -17,6 +17,7 @@ interface FetchOutcome {
   body: string | null;
   parsed: unknown;
   error: string | null;
+  requestDurationMs: number | null;
 }
 
 function isTextBasedContentType(contentType: string | null): boolean {
@@ -96,6 +97,7 @@ async function callTarget(row: JobRow): Promise<FetchOutcome> {
   const method = row.method.toUpperCase();
   const payload = parsePayload(row.payload);
   const userHeaders = parseHeaders(row.headers);
+  const startedAt = Date.now();
 
   try {
     const res = await fetch(row.url, {
@@ -118,6 +120,7 @@ async function callTarget(row: JobRow): Promise<FetchOutcome> {
       body: snapshotBody,
       parsed,
       error: null,
+      requestDurationMs: Date.now() - startedAt,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -126,6 +129,7 @@ async function callTarget(row: JobRow): Promise<FetchOutcome> {
       body: null,
       parsed: undefined,
       error: `fetch failed: ${message}`,
+      requestDurationMs: Date.now() - startedAt,
     };
   }
 }
@@ -184,6 +188,7 @@ export async function processJobMessage(
     jobId,
     responseStatus: outcome.status,
     responsePayload: outcome.body,
+    requestDurationMs: outcome.requestDurationMs,
   });
 
   if (isStop(outcome.parsed)) {

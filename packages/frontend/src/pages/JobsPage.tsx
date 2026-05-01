@@ -17,6 +17,7 @@ import {
 } from "@mantine/core";
 import { IconRefresh } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   createJob,
   deleteJob,
@@ -53,9 +54,13 @@ function estimateErrorRetryDelaySeconds(errorAttempts: number): number {
 
 export function JobsPage() {
   const DEFAULT_PAGE_SIZE = 50;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialCustomerId = searchParams.get("customerId");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
+    initialCustomerId && initialCustomerId.length > 0 ? initialCustomerId : null,
+  );
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [totalJobs, setTotalJobs] = useState(0);
@@ -135,6 +140,18 @@ export function JobsPage() {
     }
   }, [page, totalPages]);
 
+  useEffect(() => {
+    const customerIdFromQuery = searchParams.get("customerId");
+    const nextValue =
+      customerIdFromQuery && customerIdFromQuery.length > 0
+        ? customerIdFromQuery
+        : null;
+    if (nextValue !== selectedCustomerId) {
+      setSelectedCustomerId(nextValue);
+      setPage(1);
+    }
+  }, [searchParams, selectedCustomerId]);
+
   const customerOptions = useMemo(
     () =>
       customers.map((customer) => ({
@@ -159,6 +176,12 @@ export function JobsPage() {
     if (hours > 0) return `in ${hours}h ${minutes}m`;
     if (minutes > 0) return `in ${minutes}m ${seconds}s`;
     return `in ${seconds}s`;
+  }
+
+  function formatDuration(durationMs: number | null): string {
+    if (durationMs == null) return "-";
+    if (durationMs < 1000) return `${durationMs} ms`;
+    return `${(durationMs / 1000).toFixed(2)} s`;
   }
 
   function getNextRunAt(job: Job): number | null {
@@ -329,6 +352,11 @@ export function JobsPage() {
             onChange={(value) => {
               setSelectedCustomerId(value);
               setPage(1);
+              if (value) {
+                setSearchParams({ customerId: value });
+              } else {
+                setSearchParams({});
+              }
             }}
             w={{ base: "100%", sm: 280 }}
             maw={360}
@@ -478,6 +506,7 @@ export function JobsPage() {
                   <Table.Tr>
                     <Table.Th>Run At</Table.Th>
                     <Table.Th>Status</Table.Th>
+                    <Table.Th>Request Time</Table.Th>
                     <Table.Th>Response Payload</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
@@ -486,6 +515,7 @@ export function JobsPage() {
                     <Table.Tr key={run.id}>
                       <Table.Td>{formatDate(run.runAt)}</Table.Td>
                       <Table.Td>{run.responseStatus ?? "-"}</Table.Td>
+                      <Table.Td>{formatDuration(run.requestDurationMs)}</Table.Td>
                       <Table.Td>
                         <Text size="sm" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                           {run.responsePayload ?? "-"}

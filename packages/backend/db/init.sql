@@ -54,6 +54,7 @@ CREATE TABLE runs (
   run_at             INTEGER NOT NULL,
   response_status    INTEGER,
   response_payload   TEXT,
+  request_duration_ms INTEGER,
   FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
 );
 

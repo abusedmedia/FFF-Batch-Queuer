@@ -356,14 +356,15 @@ export async function insertRun(
     jobId: string;
     responseStatus: number | null;
     responsePayload: string | null;
+    requestDurationMs: number | null;
   },
 ): Promise<RunRow> {
   const id = crypto.randomUUID();
   const runAt = now();
   const row = await db
     .prepare(
-      `INSERT INTO runs (id, job_id, run_at, response_status, response_payload)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO runs (id, job_id, run_at, response_status, response_payload, request_duration_ms)
+       VALUES (?, ?, ?, ?, ?, ?)
        RETURNING *`,
     )
     .bind(
@@ -372,6 +373,7 @@ export async function insertRun(
       runAt,
       input.responseStatus,
       truncate(input.responsePayload),
+      input.requestDurationMs,
     )
     .first<RunRow>();
   if (!row) throw new Error("insertRun: row missing after insert");

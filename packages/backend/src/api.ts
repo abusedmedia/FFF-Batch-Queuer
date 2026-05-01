@@ -149,6 +149,7 @@ interface SerializedRun {
   runAt: number;
   responseStatus: number | null;
   responsePayload: string | null;
+  requestDurationMs: number | null;
 }
 
 function serialize(row: JobRow): SerializedJob {
@@ -196,13 +197,21 @@ function safeParse(value: string): unknown {
   }
 }
 
-function serializeRun(row: { id: string; job_id: string; run_at: number; response_status: number | null; response_payload: string | null }): SerializedRun {
+function serializeRun(row: {
+  id: string;
+  job_id: string;
+  run_at: number;
+  response_status: number | null;
+  response_payload: string | null;
+  request_duration_ms: number | null;
+}): SerializedRun {
   return {
     id: row.id,
     jobId: row.job_id,
     runAt: row.run_at,
     responseStatus: row.response_status,
     responsePayload: row.response_payload,
+    requestDurationMs: row.request_duration_ms,
   };
 }
 

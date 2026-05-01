@@ -22,12 +22,14 @@ import {
   updateCustomer,
 } from "../api";
 import type { Customer } from "../types";
+import { useNavigate } from "react-router-dom";
 
 function getCustomerStatusColor(isActive: boolean): string {
   return isActive ? "green" : "gray";
 }
 
 export function CustomersPage() {
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [jobCountsByCustomer, setJobCountsByCustomer] = useState<Record<string, number>>(
     {},
@@ -189,7 +191,11 @@ export function CustomersPage() {
             </Table.Thead>
             <Table.Tbody>
               {customers.map((customer) => (
-                <Table.Tr key={customer.id}>
+                <Table.Tr
+                  key={customer.id}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => navigate(`/jobs?customerId=${encodeURIComponent(customer.id)}`)}
+                >
                   <Table.Td>{customer.name}</Table.Td>
                   <Table.Td>
                     <Badge color={getCustomerStatusColor(customer.isActive)} variant="light">
@@ -198,7 +204,13 @@ export function CustomersPage() {
                   </Table.Td>
                   <Table.Td>{jobCountsByCustomer[customer.id] ?? 0}</Table.Td>
                   <Table.Td>
-                    <Button variant="light" onClick={() => openEditModal(customer)}>
+                    <Button
+                      variant="light"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openEditModal(customer);
+                      }}
+                    >
                       Edit
                     </Button>
                   </Table.Td>
