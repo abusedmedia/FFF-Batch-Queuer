@@ -12,6 +12,7 @@ import {
   getJob,
   hasResumableJobWithSameName,
   insertJob,
+  countRunsByJobId,
   listRunsByJobId,
   listAllJobs,
   listCustomers,
@@ -24,6 +25,10 @@ import type { CustomerRow, Env, JobRow, JobStatus } from "./types";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 const JOB_STATUSES = ["pending", "running", "done", "failed", "paused"] as const;
+
+const jobRunsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(2000).optional(),
+});
 
 const createJobSchema = z.object({
   name: z.string().min(1).max(200),
@@ -533,8 +538,24 @@ app.get("/observability/jobs/:id/runs", async (c) => {
   const id = c.req.param("id");
   const existing = await getJob(c.env.DB, id);
   if (!existing) return c.json({ error: "not found" }, 404);
-  const runs = await listRunsByJobId(c.env.DB, id);
-  return c.json({ runs: runs.map(serializeRun) });
+  const parsed = jobRunsQuerySchema.safeParse({
+    limit: c.req.query("limit"),
+  });
+  if (!parsed.success) {
+    return c.json(
+      { error: "Invalid query", details: parsed.error.flatten() },
+      400,
+    );
+  }
+  const limit = parsed.data.limit ?? 2000;
+  const [runs, total] = await Promise.all([
+    listRunsByJobId(c.env.DB, id, limit),
+    countRunsByJobId(c.env.DB, id),
+  ]);
+  return c.json({
+    runs: runs.map(serializeRun),
+    total,
+  });
 });
 
 app.post("/jobs", async (c) => {

@@ -100,11 +100,14 @@ export async function deleteJob(jobId: string): Promise<{ deleted: boolean }> {
   });
 }
 
-export async function fetchJobRuns(jobId: string): Promise<Run[]> {
-  const payload = await request<{ runs: Run[] }>(
-    `/observability/jobs/${encodeURIComponent(jobId)}/runs`,
+export async function fetchJobRuns(
+  jobId: string,
+  options?: { limit?: number },
+): Promise<{ runs: Run[]; total: number }> {
+  const limit = options?.limit ?? 2000;
+  return request<{ runs: Run[]; total: number }>(
+    `/observability/jobs/${encodeURIComponent(jobId)}/runs?limit=${limit}`,
   );
-  return payload.runs;
 }
 
 export async function updateCustomer(

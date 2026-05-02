@@ -380,12 +380,23 @@ export async function insertRun(
   return row;
 }
 
+export async function countRunsByJobId(
+  db: D1Database,
+  jobId: string,
+): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS total FROM runs WHERE job_id = ?`)
+    .bind(jobId)
+    .first<{ total: number }>();
+  return row?.total ?? 0;
+}
+
 export async function listRunsByJobId(
   db: D1Database,
   jobId: string,
-  limit = 100,
+  limit = 2000,
 ): Promise<RunRow[]> {
-  const safeLimit = Math.min(Math.max(limit, 1), 500);
+  const safeLimit = Math.min(Math.max(limit, 1), 2000);
   const result = await db
     .prepare(
       `SELECT *

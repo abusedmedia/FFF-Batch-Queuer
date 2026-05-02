@@ -43,6 +43,13 @@ function getStatusColor(status: Job["status"]): string {
   }
 }
 
+function formatSuccessProgress(job: Job): string {
+  if (job.successLimit === -1) {
+    return `${job.successCount} / ∞`;
+  }
+  return `${job.successCount} / ${job.successLimit}`;
+}
+
 function estimateErrorRetryDelaySeconds(errorAttempts: number): number {
   const baseMs = 5_000;
   const maxMs = 300_000;
@@ -86,6 +93,7 @@ export function JobsPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
+  const [runsTotal, setRunsTotal] = useState<number | null>(null);
   const [runsLoading, setRunsLoading] = useState(false);
   const [runsError, setRunsError] = useState<string | null>(null);
 
@@ -110,6 +118,7 @@ export function JobsPage() {
         ) {
           setExpandedJobId(null);
           setRuns([]);
+          setRunsTotal(null);
           setRunsError(null);
           setRunsLoading(false);
         }
@@ -121,6 +130,7 @@ export function JobsPage() {
   useEffect(() => {
     if (!expandedJobId) {
       setRuns([]);
+      setRunsTotal(null);
       setRunsError(null);
       setRunsLoading(false);
       return;
@@ -128,7 +138,10 @@ export function JobsPage() {
     setRunsLoading(true);
     setRunsError(null);
     fetchJobRuns(expandedJobId)
-      .then((rows) => setRuns(rows))
+      .then(({ runs: rows, total }) => {
+        setRuns(rows);
+        setRunsTotal(total);
+      })
       .catch((err: Error) => setRunsError(err.message))
       .finally(() => setRunsLoading(false));
   }, [expandedJobId]);
@@ -385,7 +398,7 @@ export function JobsPage() {
       )}
       {!loading && !error && jobs.length > 0 && (
         <>
-          <Table.ScrollContainer minWidth={760}>
+          <Table.ScrollContainer minWidth={920}>
             <Table striped highlightOnHover withTableBorder>
               <Table.Thead>
                 <Table.Tr>
@@ -394,6 +407,7 @@ export function JobsPage() {
                   <Table.Th>Status</Table.Th>
                   <Table.Th>Next run</Table.Th>
                   <Table.Th>Error State</Table.Th>
+                  <Table.Th>Success target</Table.Th>
                   <Table.Th>Attempts</Table.Th>
                   <Table.Th></Table.Th>
                 </Table.Tr>
@@ -448,6 +462,9 @@ export function JobsPage() {
                             </Badge>
                           )}
                         </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{formatSuccessProgress(job)}</Text>
+                        </Table.Td>
                         <Table.Td>{job.attempts}</Table.Td>
                         <Table.Td>
                           <Button
@@ -463,10 +480,19 @@ export function JobsPage() {
                       </Table.Tr>
                       {isExpanded && (
                         <Table.Tr>
-                          <Table.Td colSpan={7}>
+                          <Table.Td colSpan={8}>
                             <Text size="sm" fw={600} mb="xs">
-                              Runs ({runs.length})
+                              Runs
+                              {runsTotal != null
+                                ? ` (${runs.length} of ${runsTotal})`
+                                : ` (${runs.length})`}
                             </Text>
+                            {runsTotal != null && runs.length < runsTotal && (
+                              <Text size="xs" c="dimmed" mb="xs">
+                                Newest runs are listed first; increase the API limit to load
+                                more than {runs.length} in one request (max 2000).
+                              </Text>
+                            )}
                             {runsLoading && <Loader size="sm" />}
                             {!runsLoading && runsError && <Alert color="red">{runsError}</Alert>}
                             {!runsLoading && !runsError && runs.length === 0 && (
