@@ -240,7 +240,13 @@ export async function processJobMessage(
     console.log(
       `[consumer] retrying job ${jobId} attempt=${started.attempts} delaySeconds=${delaySeconds} mode=fixed reason="success iteration ${successState.successCount}/${successState.successLimit}"`,
     );
-    msg.retry({ delaySeconds });
+    // Use a fresh queue message instead of msg.retry() so success iterations do not
+    // consume the queue max_retries budget (otherwise high successLimit can DLQ and mark failed).
+    await env.JOB_QUEUE.send(
+      { jobId, customerId },
+      { delaySeconds },
+    );
+    msg.ack();
     return;
   }
 

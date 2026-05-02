@@ -618,6 +618,50 @@ export async function recoverStaleRunningJobs(
   return result.results ?? [];
 }
 
+export interface RecoverStalePendingOpts {
+  /** Re-enqueue if a job was created/reset to pending and never claimed (`attempts = 0`) after this many ms. */
+  initialPendingMs: number;
+  /** Extra wait beyond the expected queue delay before treating the row as orphaned. */
+  pendingGraceMs: number;
+  /** Upper bound on error-path `msg.retry` delay (`backoffSeconds` cap + jitter). */
+  errorRetryUpperBoundMs: number;
+  limit: number;
+}
+
+/**
+ * Finds pending jobs whose next queue delivery is overdue: initial enqueue dropped,
+ * or `msg.retry({ delaySeconds })` never arrived after success/error backoff.
+ * Sending another message is safe: {@link startAttempt} only claims `pending` rows.
+ */
+export async function recoverStalePendingJobs(
+  db: D1Database,
+  nowMs: number,
+  opts: RecoverStalePendingOpts,
+): Promise<RecoveredJobRow[]> {
+  const safeLimit = Math.min(Math.max(opts.limit, 1), 500);
+  const initialCutoff = nowMs - opts.initialPendingMs;
+  const successPathCutoff = nowMs - opts.pendingGraceMs;
+  const errorPathCutoff = nowMs - opts.pendingGraceMs - opts.errorRetryUpperBoundMs;
+  const result = await db
+    .prepare(
+      `SELECT id, customer_id
+       FROM jobs
+       WHERE status = 'pending'
+         AND (
+           (attempts = 0 AND updated_at <= ?)
+           OR (attempts > 0 AND last_error IS NULL
+               AND updated_at <= ? - success_retry_delay_seconds * 1000)
+           OR (attempts > 0 AND last_error IS NOT NULL
+               AND updated_at <= ?)
+         )
+       ORDER BY updated_at ASC
+       LIMIT ?`,
+    )
+    .bind(initialCutoff, successPathCutoff, errorPathCutoff, safeLimit)
+    .all<RecoveredJobRow>();
+  return result.results ?? [];
+}
+
 /**
  * Returns pending jobs that should be safe to re-enqueue after process restarts.
  * This does not mutate the rows; it only selects candidates.
