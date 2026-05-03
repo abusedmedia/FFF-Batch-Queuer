@@ -1,11 +1,28 @@
+/** Cloudflare Send Email binding (`send_email` in wrangler). */
+export interface SendEmailBinding {
+  send(message: {
+    from: string;
+    to: string | string[];
+    subject: string;
+    text?: string;
+    html?: string;
+  }): Promise<unknown>;
+}
+
 export interface Env {
   DB: D1Database;
   JOB_QUEUE: Queue<JobMessage>;
+  /** Present when `send_email` is configured in wrangler. */
+  SEND_EMAIL?: SendEmailBinding;
   OBSERVABILITY_TOKEN?: string;
   CORS_ORIGIN?: string;
   RECOVERY_STALE_RUNNING_MS?: string;
   RECOVERY_SCAN_LIMIT?: string;
   RECOVERY_PENDING_BOOT_REQUEUE_LIMIT?: string;
+  /** Verified sender on your zone (Email Routing). Required with JOB_FAILURE_ALERT_TO to send failure alerts. */
+  JOB_FAILURE_ALERT_FROM?: string;
+  /** Inbox that receives job failure notifications. */
+  JOB_FAILURE_ALERT_TO?: string;
 }
 
 export type JobStatus = "pending" | "running" | "done" | "failed" | "paused";

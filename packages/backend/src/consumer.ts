@@ -9,6 +9,7 @@ import {
   markPendingForRetry,
   startAttempt,
 } from "./db";
+import { notifyJobFailed } from "./emailAlerts";
 import type { Env, JobMessage, JobRow } from "./types";
 import { MAX_BODY_SNAPSHOT_BYTES } from "./types";
 
@@ -271,6 +272,13 @@ export async function processJobMessage(
       outcome.status,
       outcome.body,
     );
+    await notifyJobFailed(env, {
+      jobId,
+      customerId,
+      jobName: existing.name,
+      reason,
+      source: "error_limit",
+    });
     msg.ack();
     return;
   }
@@ -322,5 +330,12 @@ export async function processDlqMessage(
     existing.last_status,
     existing.last_body,
   );
+  await notifyJobFailed(env, {
+    jobId,
+    customerId,
+    jobName: existing.name,
+    reason: "dead-lettered after Queues max_retries",
+    source: "dlq",
+  });
   msg.ack();
 }

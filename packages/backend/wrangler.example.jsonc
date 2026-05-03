@@ -10,6 +10,23 @@
   "observability": {
     "enabled": true
   },
+  // Job failure emails — common production issues:
+  // (1) Email Routing rules in the dashboard are NOT Worker env vars. Define JOB_FAILURE_ALERT_* under wrangler "vars" — they deploy with the Worker and show in the dashboard; you can also edit them there.
+  // (2) JOB_FAILURE_ALERT_TO must be an Email Routing *verified destination* (the real inbox under Email Routing → Destination addresses), NOT a zone custom alias like hello@yourzone.com — Workers send rejects unverified routing aliases. If you set destination_address in wrangler, it must match that same verified address (or omit destination_address to allow any verified destination).
+  // (3) Failure alerts run in the queue consumer — use `wrangler tail` (production) and look for [email] lines; they do not appear in HTTP request logs.
+  // Local: simulated send unless you add "remote": true on this binding.
+  "send_email": [
+    {
+      "name": "SEND_EMAIL"
+    }
+  ],
+  "vars": {
+    "CORS_ORIGIN": "*",
+    // Optional: job failure email (or use .dev.vars). Omit send_email.destination_address for unrestricted; if set, match JOB_FAILURE_ALERT_TO.
+    // For real delivery during wrangler dev, add "remote": true on the send_email entry (see Cloudflare email-service local-development/sending).
+    // "JOB_FAILURE_ALERT_FROM": "alerts@yourdomain.com",
+    // "JOB_FAILURE_ALERT_TO": "you@example.com"
+  },
   "d1_databases": [
     {
       "binding": "DB",

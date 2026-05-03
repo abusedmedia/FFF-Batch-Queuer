@@ -269,6 +269,76 @@ app.post("/work", async (req, res) => {
 - **Auth:** implemented via `x-client-token` -> SHA-256 lookup in
   `customers.token_hash`; deactivate customers with `is_active = 0`.
 
+## Job failure email alerts (optional)
+
+The queue consumer can send one outbound email when a job becomes `failed`, in
+two cases:
+
+1. **Error attempts exhausted** — the job hit `errorAttemptLimit` after repeated
+   non-2xx responses, fetch errors, or JSON bodies containing an `error` key.
+2. **Dead-letter path** — the main queue exceeded Cloudflare’s retry budget and
+   the DLQ consumer marked the job `failed`.
+
+`POST /jobs/:id/cancel` also marks a job `failed`, but **does not** send this
+email (only the queue-driven paths above do).
+
+Implementation: [`packages/backend/src/emailAlerts.ts`](packages/backend/src/emailAlerts.ts)
+is invoked from [`packages/backend/src/consumer.ts`](packages/backend/src/consumer.ts)
+after the job row is updated.
+
+### Prerequisites (Cloudflare)
+
+1. [Email Routing](https://developers.cloudflare.com/email-routing/get-started/)
+   enabled on the zone that owns your sender domain.
+2. A **`send_email`** binding on the Worker (see
+   [`wrangler.example.jsonc`](packages/backend/wrangler.example.jsonc)). Name
+   it `SEND_EMAIL` to match the code.
+3. Outbound mail follows Cloudflare’s **Send Email** rules: the envelope
+   **`from`** must be an address on that zone (for example `alerts@example.com`),
+   and **`to`** must be an Email Routing **verified destination address** (the
+   mailbox listed under **Email Routing → Destination addresses** after you
+   clicked the verification link). A **custom route alias** like
+   `hello@yourdomain.com` is not sufficient for `to` — send to the verified
+   external inbox (or add that address as a verified destination). See
+   [Send emails from Workers](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/)
+   and [Destination addresses](https://developers.cloudflare.com/email-routing/setup/email-routing-addresses/#destination-addresses).
+
+### Worker variables
+
+Set these under `vars` in `wrangler.jsonc` (they deploy with the Worker and appear
+in the dashboard), or override locally with `.dev.vars`:
+
+| Variable | Purpose |
+| --- | --- |
+| `JOB_FAILURE_ALERT_FROM` | Envelope **From** (must be on the zone where Email Routing runs). |
+| `JOB_FAILURE_ALERT_TO` | Envelope **To** — use a **verified destination** as above. |
+
+If either variable is missing or empty, no email is sent (the failure path still
+completes normally). Logs include a skip line starting with `[email]`.
+
+### Binding restrictions (`destination_address`)
+
+If you set `destination_address` on the `send_email` entry in Wrangler, the
+Worker may only send **to** that exact address, so it must match
+`JOB_FAILURE_ALERT_TO`. Omit `destination_address` to allow any verified
+destination allowed for your account binding.
+
+### Local development
+
+By default, `wrangler dev` **simulates** the Send Email binding: nothing is
+delivered to a real inbox; Wrangler logs the message and may write body text to
+temp files. See
+[Email sending — local development](https://developers.cloudflare.com/email-service/local-development/sending/).
+To send real mail while still running the script locally, add **`"remote": true`**
+on that `send_email` object in `wrangler.jsonc`.
+
+### Debugging production
+
+Failure alerts run in the **`queue` handler**, not in `fetch`. Use
+`cd packages/backend && npm run tail` (or `wrangler tail`) and trigger a failed
+job; look for `[email]` lines (`sending`, `send finished`, `failed`, or
+`skipped`).
+
 ## Useful commands
 
 ```bash
