@@ -11,9 +11,7 @@ keeps re-calling the target URL with two independent limits:
 plus a payload-level override where `{ "stop": true }` immediately marks the
 job `done`.
 
-![](01.png)
-
-![](02.png)
+![](cover.png)
 
 ## Architecture
 
