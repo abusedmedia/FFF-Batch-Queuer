@@ -6,6 +6,7 @@ import {
   Group,
   Loader,
   Modal,
+  MultiSelect,
   NumberInput,
   Pagination,
   Select,
@@ -59,15 +60,29 @@ function estimateErrorRetryDelaySeconds(errorAttempts: number): number {
   return Math.max(1, Math.ceil(expMs / 1000));
 }
 
+const JOB_STATUS_OPTIONS: Array<{ value: Job["status"]; label: string }> = [
+  { value: "pending", label: "pending" },
+  { value: "running", label: "running" },
+  { value: "done", label: "done" },
+  { value: "failed", label: "failed" },
+  { value: "paused", label: "paused" },
+];
+
 export function JobsPage() {
   const DEFAULT_PAGE_SIZE = 50;
   const [searchParams, setSearchParams] = useSearchParams();
   const initialCustomerId = searchParams.get("customerId");
+  const initialStatuses = searchParams
+    .getAll("status")
+    .filter((status): status is Job["status"] =>
+      JOB_STATUS_OPTIONS.some((option) => option.value === status),
+    );
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
     initialCustomerId && initialCustomerId.length > 0 ? initialCustomerId : null,
   );
+  const [selectedStatuses, setSelectedStatuses] = useState<Job["status"][]>(initialStatuses);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [totalJobs, setTotalJobs] = useState(0);
@@ -104,6 +119,7 @@ export function JobsPage() {
       fetchCustomers(),
       fetchJobs({
         customerId: selectedCustomerId ?? undefined,
+        statuses: selectedStatuses.length > 0 ? selectedStatuses : undefined,
         limit: pageSize,
         offset: (page - 1) * pageSize,
       }),
@@ -125,7 +141,7 @@ export function JobsPage() {
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [selectedCustomerId, page, pageSize, reloadToken, expandedJobId]);
+  }, [selectedCustomerId, selectedStatuses, page, pageSize, reloadToken, expandedJobId]);
 
   useEffect(() => {
     if (!expandedJobId) {
@@ -156,6 +172,11 @@ export function JobsPage() {
 
   useEffect(() => {
     const customerIdFromQuery = searchParams.get("customerId");
+    const statusesFromQuery = searchParams
+      .getAll("status")
+      .filter((status): status is Job["status"] =>
+        JOB_STATUS_OPTIONS.some((option) => option.value === status),
+      );
     const nextValue =
       customerIdFromQuery && customerIdFromQuery.length > 0
         ? customerIdFromQuery
@@ -164,7 +185,14 @@ export function JobsPage() {
       setSelectedCustomerId(nextValue);
       setPage(1);
     }
-  }, [searchParams, selectedCustomerId]);
+    if (
+      statusesFromQuery.length !== selectedStatuses.length ||
+      statusesFromQuery.some((status, index) => status !== selectedStatuses[index])
+    ) {
+      setSelectedStatuses(statusesFromQuery);
+      setPage(1);
+    }
+  }, [searchParams, selectedCustomerId, selectedStatuses]);
 
   const customerOptions = useMemo(
     () =>
@@ -353,6 +381,18 @@ export function JobsPage() {
     }
   }
 
+  function updateSearchFilters(next: {
+    customerId: string | null;
+    statuses: Job["status"][];
+  }): void {
+    const params = new URLSearchParams();
+    if (next.customerId) {
+      params.set("customerId", next.customerId);
+    }
+    next.statuses.forEach((status) => params.append("status", status));
+    setSearchParams(params);
+  }
+
   return (
     <>
       <Group justify="space-between" mb="md" align="flex-end" wrap="wrap">
@@ -366,14 +406,29 @@ export function JobsPage() {
             onChange={(value) => {
               setSelectedCustomerId(value);
               setPage(1);
-              if (value) {
-                setSearchParams({ customerId: value });
-              } else {
-                setSearchParams({});
-              }
+              updateSearchFilters({ customerId: value, statuses: selectedStatuses });
             }}
             w={{ base: "100%", sm: 280 }}
             maw={360}
+          />
+          <MultiSelect
+            placeholder="Filter by status"
+            clearable
+            data={JOB_STATUS_OPTIONS}
+            value={selectedStatuses}
+            onChange={(value) => {
+              const nextStatuses = value.filter((status): status is Job["status"] =>
+                JOB_STATUS_OPTIONS.some((option) => option.value === status),
+              );
+              setSelectedStatuses(nextStatuses);
+              setPage(1);
+              updateSearchFilters({
+                customerId: selectedCustomerId,
+                statuses: nextStatuses,
+              });
+            }}
+            w={{ base: "100%", sm: 320 }}
+            maw={420}
           />
           <Group gap="xs" wrap="nowrap">
             <ActionIcon

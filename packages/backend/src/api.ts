@@ -51,11 +51,12 @@ const createJobSchema = z.object({
 });
 
 const listQuerySchema = z.object({
-  status: z.enum(JOB_STATUSES).optional(),
   name: z.string().optional(),
   limit: z.coerce.number().int().positive().max(200).optional(),
   offset: z.coerce.number().int().nonnegative().optional(),
 });
+
+const listStatusSchema = z.array(z.enum(JOB_STATUSES));
 
 const updateCustomerSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
@@ -385,7 +386,6 @@ app.get("/observability/jobs", async (c) => {
     return c.json({ error: "invalid or missing x-observability-token header" }, 401);
   }
   const parsed = listQuerySchema.safeParse({
-    status: c.req.query("status"),
     name: c.req.query("name"),
     limit: c.req.query("limit"),
     offset: c.req.query("offset"),
@@ -397,10 +397,24 @@ app.get("/observability/jobs", async (c) => {
     );
   }
 
+  const parsedStatuses = listStatusSchema.safeParse(
+    (c.req
+      .queries("status") ?? [])
+      .flatMap((value) => value.split(","))
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
+  );
+  if (!parsedStatuses.success) {
+    return c.json(
+      { error: "Invalid query", details: parsedStatuses.error.flatten() },
+      400,
+    );
+  }
+
   const customerId = c.req.query("customerId") ?? undefined;
   const filters = {
     customerId,
-    status: parsed.data.status,
+    status: parsedStatuses.data.length > 0 ? parsedStatuses.data : undefined,
     name: parsed.data.name,
   };
   const rows = await listAllJobs(c.env.DB, {
@@ -615,7 +629,6 @@ app.get("/jobs", async (c) => {
   }
 
   const parsed = listQuerySchema.safeParse({
-    status: c.req.query("status"),
     name: c.req.query("name"),
     limit: c.req.query("limit"),
     offset: c.req.query("offset"),
@@ -627,7 +640,25 @@ app.get("/jobs", async (c) => {
     );
   }
 
-  const rows = await listJobs(c.env.DB, { ...parsed.data, customerId: customer.id });
+  const parsedStatuses = listStatusSchema.safeParse(
+    (c.req
+      .queries("status") ?? [])
+      .flatMap((value) => value.split(","))
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
+  );
+  if (!parsedStatuses.success) {
+    return c.json(
+      { error: "Invalid query", details: parsedStatuses.error.flatten() },
+      400,
+    );
+  }
+
+  const rows = await listJobs(c.env.DB, {
+    ...parsed.data,
+    status: parsedStatuses.data.length > 0 ? parsedStatuses.data : undefined,
+    customerId: customer.id,
+  });
   return c.json({ jobs: rows.map(serialize) });
 });
 

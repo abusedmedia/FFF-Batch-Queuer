@@ -92,7 +92,7 @@ export async function getJob(
 
 export interface ListJobsOptions {
   customerId: string;
-  status?: JobStatus;
+  status?: JobStatus | JobStatus[];
   name?: string;
   limit?: number;
   offset?: number;
@@ -100,7 +100,7 @@ export interface ListJobsOptions {
 
 export interface ListAllJobsOptions {
   customerId?: string;
-  status?: JobStatus;
+  status?: JobStatus | JobStatus[];
   name?: string;
   limit?: number;
   offset?: number;
@@ -116,9 +116,14 @@ export async function listJobs(
 ): Promise<JobRow[]> {
   const clauses: string[] = ["customer_id = ?"];
   const binds: unknown[] = [opts.customerId];
-  if (opts.status) {
-    clauses.push("status = ?");
-    binds.push(opts.status);
+  const statuses = opts.status
+    ? Array.isArray(opts.status)
+      ? opts.status
+      : [opts.status]
+    : [];
+  if (statuses.length > 0) {
+    clauses.push(`status IN (${statuses.map(() => "?").join(", ")})`);
+    binds.push(...statuses);
   }
   if (opts.name) {
     clauses.push("name = ?");
@@ -147,9 +152,14 @@ export async function listAllJobs(
     clauses.push("j.customer_id = ?");
     binds.push(opts.customerId);
   }
-  if (opts.status) {
-    clauses.push("j.status = ?");
-    binds.push(opts.status);
+  const statuses = opts.status
+    ? Array.isArray(opts.status)
+      ? opts.status
+      : [opts.status]
+    : [];
+  if (statuses.length > 0) {
+    clauses.push(`j.status IN (${statuses.map(() => "?").join(", ")})`);
+    binds.push(...statuses);
   }
   if (opts.name) {
     clauses.push("j.name = ?");
@@ -183,9 +193,14 @@ export async function countAllJobs(
     clauses.push("j.customer_id = ?");
     binds.push(opts.customerId);
   }
-  if (opts.status) {
-    clauses.push("j.status = ?");
-    binds.push(opts.status);
+  const statuses = opts.status
+    ? Array.isArray(opts.status)
+      ? opts.status
+      : [opts.status]
+    : [];
+  if (statuses.length > 0) {
+    clauses.push(`j.status IN (${statuses.map(() => "?").join(", ")})`);
+    binds.push(...statuses);
   }
   if (opts.name) {
     clauses.push("j.name = ?");

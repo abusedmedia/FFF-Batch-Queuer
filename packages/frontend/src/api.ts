@@ -33,12 +33,16 @@ export async function fetchCustomers(): Promise<Customer[]> {
 
 export async function fetchJobs(input?: {
   customerId?: string;
+  statuses?: Job["status"][];
   limit?: number;
   offset?: number;
 }): Promise<{ jobs: Job[]; total: number }> {
   const query = new URLSearchParams();
   if (input?.customerId) {
     query.set("customerId", input.customerId);
+  }
+  if (input?.statuses?.length) {
+    input.statuses.forEach((status) => query.append("status", status));
   }
   if (input?.limit != null) {
     query.set("limit", String(input.limit));
