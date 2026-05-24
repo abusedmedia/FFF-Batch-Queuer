@@ -116,6 +116,63 @@ looks up an active row in `customers(token_hash)`.
 
 Use `TOKEN` as `x-client-token` in API calls.
 
+## Admin UI authentication (optional)
+
+The React admin app talks to `/observability/*` on the Worker. By default those
+routes are **open** (same as before). To require sign-in, set **both** Worker
+variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `ADMIN_USERNAME` | Username checked at login. |
+| `ADMIN_PASSWORD` | Password checked at login. |
+
+Set them in `wrangler.jsonc` → `vars`, in the Worker dashboard under
+**Settings → Variables and Secrets**, or locally in `packages/backend/.dev.vars`.
+If either variable is missing or empty, admin login is disabled and the UI
+behaves as it does today.
+
+When both are set:
+
+1. The frontend calls `GET /auth/status` and, if auth is required, shows a
+   login screen.
+2. `POST /auth/login` validates the username and password against those env
+   vars and returns a session token.
+3. The browser stores the token in `sessionStorage` and sends it on admin API
+   calls as the `x-admin-session` header.
+
+Use **Sign out** in the admin header to clear the session.
+
+This is shared-credential gatekeeping for a small admin UI, not per-user
+accounts. For stronger protection (SSO, MFA, audit logs), use **Cloudflare
+Zero Trust (Access)** in front of Pages and/or the Worker.
+
+### Alternative: observability token header
+
+You can still protect `/observability/*` with a static token instead of (or in
+addition to) username/password login:
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `OBSERVABILITY_TOKEN` | Worker | When set, requests must include matching `x-observability-token`. |
+| `VITE_OBSERVABILITY_TOKEN` | Pages (build-time) | If set at build time, the frontend sends that header on every admin API call. |
+
+If **both** `OBSERVABILITY_TOKEN` and `ADMIN_USERNAME`/`ADMIN_PASSWORD` are
+configured, either a valid observability token **or** a valid admin session
+grants access. The login UI is for the username/password path; scripts and
+automation can keep using `x-observability-token`.
+
+### Local example
+
+```bash
+# packages/backend/.dev.vars
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-me
+```
+
+Restart `wrangler dev`, reload the frontend, and you should be redirected to
+`/login`.
+
 ## Deploy
 
 Connecting the Git repository in the Cloudflare dashboard gives you **two**
@@ -141,6 +198,7 @@ Before the first successful deploy:
 3. **Schema** — Run the SQL in [`packages/backend/db/init.sql`](packages/backend/db/init.sql) against that database using the D1 **Console** tab in the dashboard (or `wrangler d1 execute … --remote --file=…` locally).
 4. **Queues** — Create **two** queues whose names match [`packages/backend/wrangler.example.jsonc`](packages/backend/wrangler.example.jsonc): `fff-bq-queue` (main) and `fff-bq-dlq` (dead-letter). The DLQ is a normal queue with that exact name; linking happens via `dead_letter_queue` in Wrangler, not in the UI.
 5. **CORS** — Set `CORS_ORIGIN` under Worker **Variables** (or in `wrangler.jsonc` → `vars`) to the browser origin(s) allowed to call the API (e.g. your Pages URL), not `"*"` in production if you can avoid it.
+6. **Admin auth (optional)** — Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` on the Worker to require login for the admin UI. See [Admin UI authentication](#admin-ui-authentication-optional).
 
 #### Frontend (Cloudflare Pages)
 
@@ -158,13 +216,24 @@ In **Settings → Environment variables**, set at least:
 
 Optional:
 
-- **`VITE_OBSERVABILITY_TOKEN`** — Only if your backend observability routes expect this header.
+- **`VITE_OBSERVABILITY_TOKEN`** — Build-time static token for `x-observability-token` when the Worker has `OBSERVABILITY_TOKEN` set. Not needed if you use [admin username/password login](#admin-ui-authentication-optional) instead.
 
 Without `VITE_API_BASE_URL`, the frontend falls back to `http://127.0.0.1:8999` and will fail in production.
 
 #### Security
 
-Default Worker and Pages URLs are **public on the internet**. This app uses `x-client-token` for the API, but the admin UI and Worker surface are still reachable without an extra gate. Lock down access as your threat model requires—for example **Cloudflare Zero Trust (Access)** in front of the Worker and/or Pages, or another authentication layer at the edge.
+Default Worker and Pages URLs are **public on the internet**. Customer job API
+calls use `x-client-token`, but the admin UI and Worker HTTP surface are still
+reachable without an extra gate unless you configure one.
+
+Built-in options in this repo:
+
+- **`ADMIN_USERNAME` + `ADMIN_PASSWORD`** on the Worker — username/password
+  login in the admin UI (see [Admin UI authentication](#admin-ui-authentication-optional)).
+- **`OBSERVABILITY_TOKEN`** on the Worker — static header for `/observability/*`.
+
+For production, also consider **Cloudflare Zero Trust (Access)** in front of
+Pages and/or the Worker for SSO, MFA, and policy-based access.
 
 ---
 
@@ -201,8 +270,11 @@ before deploying:
 
 - `VITE_API_BASE_URL` (required in production), e.g.
   `https://fff-batch-queuer-backend.<your-subdomain>.workers.dev`
-- `VITE_OBSERVABILITY_TOKEN` (optional, only if your backend observability
-  endpoints are protected by this header)
+- `VITE_OBSERVABILITY_TOKEN` (optional) — only if the Worker uses
+  `OBSERVABILITY_TOKEN`; see [Admin UI authentication](#admin-ui-authentication-optional)
+
+Admin login uses **`ADMIN_USERNAME` / `ADMIN_PASSWORD` on the Worker only** —
+no frontend env vars are required for that path.
 
 
 Without `VITE_API_BASE_URL`, the frontend falls back to

@@ -15,6 +15,9 @@ export interface Env {
   /** Present when `send_email` is configured in wrangler. */
   SEND_EMAIL?: SendEmailBinding;
   OBSERVABILITY_TOKEN?: string;
+  /** When set with ADMIN_PASSWORD, admin UI login is required for /observability/*. */
+  ADMIN_USERNAME?: string;
+  ADMIN_PASSWORD?: string;
   CORS_ORIGIN?: string;
   RECOVERY_STALE_RUNNING_MS?: string;
   RECOVERY_SCAN_LIMIT?: string;

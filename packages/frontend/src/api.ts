@@ -1,12 +1,20 @@
 import type { Customer, Job, Run } from "./types";
+import { clearSessionToken, getSessionToken } from "./auth";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.trim() || "http://127.0.0.1:8999";
 const OBSERVABILITY_TOKEN = import.meta.env.VITE_OBSERVABILITY_TOKEN?.trim();
 
 function getHeaders(): HeadersInit {
-  if (!OBSERVABILITY_TOKEN) return {};
-  return { "x-observability-token": OBSERVABILITY_TOKEN };
+  const headers: Record<string, string> = {};
+  if (OBSERVABILITY_TOKEN) {
+    headers["x-observability-token"] = OBSERVABILITY_TOKEN;
+  }
+  const sessionToken = getSessionToken();
+  if (sessionToken) {
+    headers["x-admin-session"] = sessionToken;
+  }
+  return headers;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -18,12 +26,42 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!response.ok) {
+    if (response.status === 401 && getSessionToken()) {
+      clearSessionToken();
+    }
     const body = await response.text();
     throw new Error(
       `Request failed (${response.status}): ${body || response.statusText}`,
     );
   }
   return response.json() as Promise<T>;
+}
+
+export async function fetchAuthStatus(): Promise<{ authRequired: boolean }> {
+  return request<{ authRequired: boolean }>("/auth/status");
+}
+
+export async function login(
+  username: string,
+  password: string,
+): Promise<{ token: string }> {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    let message = "Login failed";
+    try {
+      const parsed = JSON.parse(body) as { error?: string };
+      if (parsed.error) message = parsed.error;
+    } catch {
+      // ignore non-JSON bodies
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<{ token: string }>;
 }
 
 export async function fetchCustomers(): Promise<Customer[]> {

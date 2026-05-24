@@ -26,6 +26,9 @@
   ],
   "vars": {
     "CORS_ORIGIN": "*",
+    // Optional admin UI login — set both to require username/password sign-in.
+    // "ADMIN_USERNAME": "admin",
+    // "ADMIN_PASSWORD": "change-me",
     // Optional: job failure email (or use .dev.vars). Omit send_email.destination_address for unrestricted; if set, match JOB_FAILURE_ALERT_TO.
     // For real delivery during wrangler dev, add "remote": true on the send_email entry (see Cloudflare email-service local-development/sending).
     // "JOB_FAILURE_ALERT_FROM": "alerts@yourdomain.com",
