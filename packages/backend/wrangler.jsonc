@@ -10,6 +10,9 @@
   "observability": {
     "enabled": true
   },
+  "triggers": {
+    "crons": ["0 8 * * *"]
+  },
   "send_email": [
     {
       "name": "SEND_EMAIL"
@@ -21,7 +24,9 @@
     // Omit send_email.destination_address for unrestricted sends; if set, JOB_FAILURE_ALERT_TO must match it.
     // For real delivery during wrangler dev, add "remote": true on the send_email entry (see Cloudflare email-service local-development/sending).
     //"JOB_FAILURE_ALERT_FROM": "",
-    //"JOB_FAILURE_ALERT_TO": ""
+    //"JOB_FAILURE_ALERT_TO": "",
+    "ADMIN_USERNAME": "user",
+    "ADMIN_PASSWORD": "password"
   },
   "d1_databases": [
     {

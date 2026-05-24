@@ -236,6 +236,7 @@ app.use(
       "Content-Type",
       "x-client-token",
       "x-observability-token",
+      "x-admin-session",
     ],
   }),
 );
@@ -264,27 +265,105 @@ async function authenticateCustomer(
   return getActiveCustomerByTokenHash(c.env.DB, tokenHash);
 }
 
+function isAdminLoginConfigured(env: Env): boolean {
+  return !!(env.ADMIN_USERNAME?.trim() && env.ADMIN_PASSWORD?.trim());
+}
+
+async function getAdminSessionToken(env: Env): Promise<string | null> {
+  const username = env.ADMIN_USERNAME?.trim();
+  const password = env.ADMIN_PASSWORD?.trim();
+  if (!username || !password) return null;
+  return sha256Hex(`${username}:${password}:fff-bq-admin-session`);
+}
+
 function hasObservabilityAccess(c: Context<{ Bindings: Env }>): boolean {
   const configuredToken = c.env.OBSERVABILITY_TOKEN?.trim();
-  if (!configuredToken) return true;
-  const provided = c.req.header("x-observability-token")?.trim();
-  return provided === configuredToken;
+  if (configuredToken) {
+    const provided = c.req.header("x-observability-token")?.trim();
+    if (provided === configuredToken) return true;
+  }
+
+  if (isAdminLoginConfigured(c.env)) {
+    return false;
+  }
+
+  if (configuredToken) {
+    return false;
+  }
+
+  return true;
 }
+
+async function hasObservabilityAccessAsync(
+  c: Context<{ Bindings: Env }>,
+): Promise<boolean> {
+  if (hasObservabilityAccess(c)) return true;
+
+  if (!isAdminLoginConfigured(c.env)) {
+    return false;
+  }
+
+  const expectedToken = await getAdminSessionToken(c.env);
+  const provided = c.req.header("x-admin-session")?.trim();
+  return !!(expectedToken && provided === expectedToken);
+}
+
+const loginSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
 
 app.get("/", (c) => c.json({ name: "fff-batch-queuer", ok: true }));
 app.get("/health", (c) => c.json({ ok: true }));
 
+app.get("/auth/status", (c) =>
+  c.json({ authRequired: isAdminLoginConfigured(c.env) }),
+);
+
+app.post("/auth/login", async (c) => {
+  if (!isAdminLoginConfigured(c.env)) {
+    return c.json({ error: "admin login is not configured" }, 404);
+  }
+
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    return c.json({ error: "Body must be valid JSON" }, 400);
+  }
+
+  const parsed = loginSchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json(
+      { error: "Invalid input", details: parsed.error.flatten() },
+      400,
+    );
+  }
+
+  const expectedUsername = c.env.ADMIN_USERNAME!.trim();
+  const expectedPassword = c.env.ADMIN_PASSWORD!.trim();
+  if (
+    parsed.data.username !== expectedUsername ||
+    parsed.data.password !== expectedPassword
+  ) {
+    return c.json({ error: "invalid username or password" }, 401);
+  }
+
+  const token = await getAdminSessionToken(c.env);
+  return c.json({ token });
+});
+
 app.get("/observability/customers", async (c) => {
-  if (!hasObservabilityAccess(c)) {
-    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  if (!(await hasObservabilityAccessAsync(c))) {
+    return c.json({ error: "unauthorized" }, 401);
   }
   const customers = await listCustomers(c.env.DB);
   return c.json({ customers: customers.map(serializeCustomer) });
 });
 
 app.post("/observability/customers", async (c) => {
-  if (!hasObservabilityAccess(c)) {
-    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  if (!(await hasObservabilityAccessAsync(c))) {
+    return c.json({ error: "unauthorized" }, 401);
   }
 
   let raw: unknown;
@@ -325,8 +404,8 @@ app.post("/observability/customers", async (c) => {
 });
 
 app.patch("/observability/customers/:id", async (c) => {
-  if (!hasObservabilityAccess(c)) {
-    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  if (!(await hasObservabilityAccessAsync(c))) {
+    return c.json({ error: "unauthorized" }, 401);
   }
 
   let raw: unknown;
@@ -369,8 +448,8 @@ app.patch("/observability/customers/:id", async (c) => {
 });
 
 app.delete("/observability/customers/:id", async (c) => {
-  if (!hasObservabilityAccess(c)) {
-    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  if (!(await hasObservabilityAccessAsync(c))) {
+    return c.json({ error: "unauthorized" }, 401);
   }
 
   const id = c.req.param("id");
@@ -382,8 +461,8 @@ app.delete("/observability/customers/:id", async (c) => {
 });
 
 app.get("/observability/jobs", async (c) => {
-  if (!hasObservabilityAccess(c)) {
-    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  if (!(await hasObservabilityAccessAsync(c))) {
+    return c.json({ error: "unauthorized" }, 401);
   }
   const parsed = listQuerySchema.safeParse({
     name: c.req.query("name"),
@@ -431,8 +510,8 @@ app.get("/observability/jobs", async (c) => {
 });
 
 app.post("/observability/jobs", async (c) => {
-  if (!hasObservabilityAccess(c)) {
-    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  if (!(await hasObservabilityAccessAsync(c))) {
+    return c.json({ error: "unauthorized" }, 401);
   }
 
   let raw: unknown;
@@ -495,8 +574,8 @@ app.post("/observability/jobs", async (c) => {
 });
 
 app.patch("/observability/jobs/:id", async (c) => {
-  if (!hasObservabilityAccess(c)) {
-    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  if (!(await hasObservabilityAccessAsync(c))) {
+    return c.json({ error: "unauthorized" }, 401);
   }
 
   let raw: unknown;
@@ -533,8 +612,8 @@ app.patch("/observability/jobs/:id", async (c) => {
 });
 
 app.delete("/observability/jobs/:id", async (c) => {
-  if (!hasObservabilityAccess(c)) {
-    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  if (!(await hasObservabilityAccessAsync(c))) {
+    return c.json({ error: "unauthorized" }, 401);
   }
 
   const id = c.req.param("id");
@@ -546,8 +625,8 @@ app.delete("/observability/jobs/:id", async (c) => {
 });
 
 app.get("/observability/jobs/:id/runs", async (c) => {
-  if (!hasObservabilityAccess(c)) {
-    return c.json({ error: "invalid or missing x-observability-token header" }, 401);
+  if (!(await hasObservabilityAccessAsync(c))) {
+    return c.json({ error: "unauthorized" }, 401);
   }
   const id = c.req.param("id");
   const existing = await getJob(c.env.DB, id);

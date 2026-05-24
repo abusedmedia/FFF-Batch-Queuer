@@ -25,8 +25,8 @@ One Worker, two roles:
   dead letter queue catches anything that exceeds the platform retry cap and
   flips the job to `failed`.
 
-State lives in D1 across two tables (`customers`, `jobs`). No cron, no Durable
-Objects, no Workflows.
+State lives in D1 across two tables (`customers`, `jobs`). A daily cron trigger
+runs a job consistency health check. No Durable Objects, no Workflows.
 
 ## Behaviour summary
 
@@ -55,7 +55,11 @@ Exponential backoff schedule (for errors only, no jitter): `5s, 10s, 20s, 40s,
 │   ├── backoff.ts           # exponential backoff + jitter
 │   ├── consumer.ts          # processJobMessage / processDlqMessage
 │   ├── db.ts                # D1 helpers
-│   ├── index.ts             # entry: fetch + queue handlers
+│   ├── emailAlerts.ts       # job failure + health check email digests
+│   ├── healthCheck.ts       # daily cron consistency scan
+│   ├── index.ts             # entry: fetch + queue + scheduled handlers
+│   ├── recovery.ts          # passive stale-job recovery
+│   ├── schedule.ts          # expected next-run / overdue heuristics
 │   └── types.ts             # shared types & constants
 ├── package.json
 ├── tsconfig.json
@@ -112,6 +116,63 @@ looks up an active row in `customers(token_hash)`.
 
 Use `TOKEN` as `x-client-token` in API calls.
 
+## Admin UI authentication (optional)
+
+The React admin app talks to `/observability/*` on the Worker. By default those
+routes are **open** (same as before). To require sign-in, set **both** Worker
+variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `ADMIN_USERNAME` | Username checked at login. |
+| `ADMIN_PASSWORD` | Password checked at login. |
+
+Set them in `wrangler.jsonc` → `vars`, in the Worker dashboard under
+**Settings → Variables and Secrets**, or locally in `packages/backend/.dev.vars`.
+If either variable is missing or empty, admin login is disabled and the UI
+behaves as it does today.
+
+When both are set:
+
+1. The frontend calls `GET /auth/status` and, if auth is required, shows a
+   login screen.
+2. `POST /auth/login` validates the username and password against those env
+   vars and returns a session token.
+3. The browser stores the token in `sessionStorage` and sends it on admin API
+   calls as the `x-admin-session` header.
+
+Use **Sign out** in the admin header to clear the session.
+
+This is shared-credential gatekeeping for a small admin UI, not per-user
+accounts. For stronger protection (SSO, MFA, audit logs), use **Cloudflare
+Zero Trust (Access)** in front of Pages and/or the Worker.
+
+### Alternative: observability token header
+
+You can still protect `/observability/*` with a static token instead of (or in
+addition to) username/password login:
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `OBSERVABILITY_TOKEN` | Worker | When set, requests must include matching `x-observability-token`. |
+| `VITE_OBSERVABILITY_TOKEN` | Pages (build-time) | If set at build time, the frontend sends that header on every admin API call. |
+
+If **both** `OBSERVABILITY_TOKEN` and `ADMIN_USERNAME`/`ADMIN_PASSWORD` are
+configured, either a valid observability token **or** a valid admin session
+grants access. The login UI is for the username/password path; scripts and
+automation can keep using `x-observability-token`.
+
+### Local example
+
+```bash
+# packages/backend/.dev.vars
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-me
+```
+
+Restart `wrangler dev`, reload the frontend, and you should be redirected to
+`/login`.
+
 ## Deploy
 
 Connecting the Git repository in the Cloudflare dashboard gives you **two**
@@ -137,6 +198,7 @@ Before the first successful deploy:
 3. **Schema** — Run the SQL in [`packages/backend/db/init.sql`](packages/backend/db/init.sql) against that database using the D1 **Console** tab in the dashboard (or `wrangler d1 execute … --remote --file=…` locally).
 4. **Queues** — Create **two** queues whose names match [`packages/backend/wrangler.example.jsonc`](packages/backend/wrangler.example.jsonc): `fff-bq-queue` (main) and `fff-bq-dlq` (dead-letter). The DLQ is a normal queue with that exact name; linking happens via `dead_letter_queue` in Wrangler, not in the UI.
 5. **CORS** — Set `CORS_ORIGIN` under Worker **Variables** (or in `wrangler.jsonc` → `vars`) to the browser origin(s) allowed to call the API (e.g. your Pages URL), not `"*"` in production if you can avoid it.
+6. **Admin auth (optional)** — Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` on the Worker to require login for the admin UI. See [Admin UI authentication](#admin-ui-authentication-optional).
 
 #### Frontend (Cloudflare Pages)
 
@@ -154,13 +216,24 @@ In **Settings → Environment variables**, set at least:
 
 Optional:
 
-- **`VITE_OBSERVABILITY_TOKEN`** — Only if your backend observability routes expect this header.
+- **`VITE_OBSERVABILITY_TOKEN`** — Build-time static token for `x-observability-token` when the Worker has `OBSERVABILITY_TOKEN` set. Not needed if you use [admin username/password login](#admin-ui-authentication-optional) instead.
 
 Without `VITE_API_BASE_URL`, the frontend falls back to `http://127.0.0.1:8999` and will fail in production.
 
 #### Security
 
-Default Worker and Pages URLs are **public on the internet**. This app uses `x-client-token` for the API, but the admin UI and Worker surface are still reachable without an extra gate. Lock down access as your threat model requires—for example **Cloudflare Zero Trust (Access)** in front of the Worker and/or Pages, or another authentication layer at the edge.
+Default Worker and Pages URLs are **public on the internet**. Customer job API
+calls use `x-client-token`, but the admin UI and Worker HTTP surface are still
+reachable without an extra gate unless you configure one.
+
+Built-in options in this repo:
+
+- **`ADMIN_USERNAME` + `ADMIN_PASSWORD`** on the Worker — username/password
+  login in the admin UI (see [Admin UI authentication](#admin-ui-authentication-optional)).
+- **`OBSERVABILITY_TOKEN`** on the Worker — static header for `/observability/*`.
+
+For production, also consider **Cloudflare Zero Trust (Access)** in front of
+Pages and/or the Worker for SSO, MFA, and policy-based access.
 
 ---
 
@@ -197,8 +270,11 @@ before deploying:
 
 - `VITE_API_BASE_URL` (required in production), e.g.
   `https://fff-batch-queuer-backend.<your-subdomain>.workers.dev`
-- `VITE_OBSERVABILITY_TOKEN` (optional, only if your backend observability
-  endpoints are protected by this header)
+- `VITE_OBSERVABILITY_TOKEN` (optional) — only if the Worker uses
+  `OBSERVABILITY_TOKEN`; see [Admin UI authentication](#admin-ui-authentication-optional)
+
+Admin login uses **`ADMIN_USERNAME` / `ADMIN_PASSWORD` on the Worker only** —
+no frontend env vars are required for that path.
 
 
 Without `VITE_API_BASE_URL`, the frontend falls back to
@@ -386,6 +462,57 @@ Failure alerts run in the **`queue` handler**, not in `fetch`. Use
 `cd packages/backend && npm run tail` (or `wrangler tail`) and trigger a failed
 job; look for `[email]` lines (`sending`, `send finished`, `failed`, or
 `skipped`).
+
+## Daily health check (optional)
+
+The Worker runs a **daily cron** (default **08:00 UTC**, configured in
+[`packages/backend/wrangler.example.jsonc`](packages/backend/wrangler.example.jsonc)
+under `triggers.crons`) that scans active jobs (`pending` / `running`) for
+inconsistencies:
+
+- **Stuck running** — `running` longer than `RECOVERY_STALE_RUNNING_MS` (default 5 minutes)
+- **Overdue pending** — same heuristics as passive recovery (never started, success retry overdue, error retry overdue)
+- **Duplicate active names** — more than one active job with the same `(customer, name)`
+
+Implementation: [`packages/backend/src/healthCheck.ts`](packages/backend/src/healthCheck.ts),
+invoked from the `scheduled` handler in
+[`packages/backend/src/index.ts`](packages/backend/src/index.ts).
+
+Passive recovery in [`packages/backend/src/recovery.ts`](packages/backend/src/recovery.ts)
+still runs on HTTP and queue traffic; the cron adds guaranteed daily coverage
+during quiet periods.
+
+### Email digest (optional)
+
+Health check digests reuse the same **`send_email`** binding and Cloudflare
+Email Routing prerequisites as [job failure alerts](#job-failure-email-alerts-optional).
+By default, recipients fall back to `JOB_FAILURE_ALERT_FROM` / `JOB_FAILURE_ALERT_TO`.
+
+Set these in `wrangler.jsonc` → `vars`, in the Worker dashboard under
+**Settings → Variables and Secrets**, or locally in `.dev.vars`:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HEALTH_CHECK_ENABLED` | enabled | Set to `"false"` to skip the daily scan. |
+| `HEALTH_AUTO_HEAL` | `"false"` | Set to `"true"` to also run stale-job recovery on cron. |
+| `HEALTH_ALERT_ONLY_ON_ISSUES` | `"true"` | Email only when anomalies are found. Set to `"false"` for a daily all-clear digest too. |
+| `HEALTH_ALERT_FROM` | falls back to `JOB_FAILURE_ALERT_FROM` | Envelope **From** for health digests. |
+| `HEALTH_ALERT_TO` | falls back to `JOB_FAILURE_ALERT_TO` | Envelope **To** for health digests. |
+| `HEALTH_PENDING_GRACE_MS` | 15 minutes | Extra wait after expected queue delivery before flagging overdue pending jobs. |
+| `HEALTH_INITIAL_PENDING_MS` | 10 minutes | Grace before flagging never-started pending jobs. |
+| `RECOVERY_STALE_RUNNING_MS` | 5 minutes | Threshold for stuck `running` jobs (shared with passive recovery). |
+| `RECOVERY_SCAN_LIMIT` | 100 | Max active jobs scanned per run (max 500). |
+
+If email is not configured, the check still runs and logs to `wrangler tail`
+(`[health]` lines). Look for `[email] health check alert skipped` when from/to
+addresses are missing.
+
+### Debugging the health check
+
+The cron runs in the **`scheduled` handler**, not in `fetch`. Use
+`cd packages/backend && npm run tail` and look for `[health] daily check complete`
+after the cron fires. To test locally, run `wrangler dev` and trigger the
+scheduled handler using the URL shown in the dev server output.
 
 ## Useful commands
 
