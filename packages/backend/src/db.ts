@@ -409,18 +409,20 @@ export async function countRunsByJobId(
 export async function listRunsByJobId(
   db: D1Database,
   jobId: string,
-  limit = 2000,
+  limit = 500,
+  offset = 0,
 ): Promise<RunRow[]> {
   const safeLimit = Math.min(Math.max(limit, 1), 2000);
+  const safeOffset = Math.max(offset, 0);
   const result = await db
     .prepare(
       `SELECT *
        FROM runs
        WHERE job_id = ?
        ORDER BY run_at DESC
-       LIMIT ?`,
+       LIMIT ? OFFSET ?`,
     )
-    .bind(jobId, safeLimit)
+    .bind(jobId, safeLimit, safeOffset)
     .all<RunRow>();
   return result.results ?? [];
 }
@@ -476,6 +478,7 @@ export async function incrementErrorAttempts(
   db: D1Database,
   id: string,
   customerId: string,
+  attemptNo: number,
 ): Promise<{ errorAttempts: number; errorAttemptLimit: number } | null> {
   const ts = now();
   const result = await db
@@ -485,9 +488,11 @@ export async function incrementErrorAttempts(
              updated_at = ?
        WHERE id = ?
          AND customer_id = ?
+         AND status = 'running'
+         AND attempts = ?
        RETURNING error_attempts, max_attempts`,
     )
-    .bind(ts, id, customerId)
+    .bind(ts, id, customerId, attemptNo)
     .first<{ error_attempts: number; max_attempts: number }>();
   if (!result) return null;
   return {
@@ -500,6 +505,7 @@ export async function incrementSuccessCount(
   db: D1Database,
   id: string,
   customerId: string,
+  attemptNo: number,
 ): Promise<{ successCount: number; successLimit: number } | null> {
   const ts = now();
   const result = await db
@@ -509,9 +515,11 @@ export async function incrementSuccessCount(
              updated_at = ?
        WHERE id = ?
          AND customer_id = ?
+         AND status = 'running'
+         AND attempts = ?
        RETURNING success_count, success_limit`,
     )
-    .bind(ts, id, customerId)
+    .bind(ts, id, customerId, attemptNo)
     .first<{ success_count: number; success_limit: number }>();
   if (!result) return null;
   return {
@@ -524,17 +532,18 @@ export async function recordAttemptOutcome(
   db: D1Database,
   id: string,
   customerId: string,
+  attemptNo: number,
   outcome: {
     lastStatus: number | null;
     lastBody: string | null;
     lastError: string | null;
     nextStatus: Extract<JobStatus, "pending" | "done" | "failed">;
   },
-): Promise<void> {
+): Promise<boolean> {
   const ts = now();
   const completedAt = outcome.nextStatus === "pending" ? null : ts;
 
-  await db
+  const result = await db
     .prepare(
       `UPDATE jobs
          SET status = ?,
@@ -544,7 +553,9 @@ export async function recordAttemptOutcome(
              updated_at = ?,
              completed_at = COALESCE(?, completed_at)
        WHERE id = ?
-         AND customer_id = ?`,
+         AND customer_id = ?
+         AND status = 'running'
+         AND attempts = ?`,
     )
     .bind(
       outcome.nextStatus,
@@ -555,18 +566,21 @@ export async function recordAttemptOutcome(
       completedAt,
       id,
       customerId,
+      attemptNo,
     )
     .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function markDone(
   db: D1Database,
   id: string,
   customerId: string,
+  attemptNo: number,
   lastStatus: number,
   lastBody: string | null,
-): Promise<void> {
-  await recordAttemptOutcome(db, id, customerId, {
+): Promise<boolean> {
+  return recordAttemptOutcome(db, id, customerId, attemptNo, {
     lastStatus,
     lastBody,
     lastError: null,
@@ -581,24 +595,54 @@ export async function markFailed(
   reason: string,
   lastStatus: number | null = null,
   lastBody: string | null = null,
-): Promise<void> {
-  await recordAttemptOutcome(db, id, customerId, {
-    lastStatus,
-    lastBody,
-    lastError: reason,
-    nextStatus: "failed",
-  });
+  attemptNo?: number,
+): Promise<boolean> {
+  if (attemptNo != null) {
+    return recordAttemptOutcome(db, id, customerId, attemptNo, {
+      lastStatus,
+      lastBody,
+      lastError: reason,
+      nextStatus: "failed",
+    });
+  }
+
+  const ts = now();
+  const result = await db
+    .prepare(
+      `UPDATE jobs
+         SET status = 'failed',
+             last_status = ?,
+             last_body = ?,
+             last_error = ?,
+             updated_at = ?,
+             completed_at = ?
+       WHERE id = ?
+         AND customer_id = ?
+         AND status NOT IN ('done', 'failed', 'paused')`,
+    )
+    .bind(
+      lastStatus,
+      truncate(lastBody),
+      reason,
+      ts,
+      ts,
+      id,
+      customerId,
+    )
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function markPendingForRetry(
   db: D1Database,
   id: string,
   customerId: string,
+  attemptNo: number,
   lastStatus: number | null,
   lastBody: string | null,
   lastError: string | null,
-): Promise<void> {
-  await recordAttemptOutcome(db, id, customerId, {
+): Promise<boolean> {
+  return recordAttemptOutcome(db, id, customerId, attemptNo, {
     lastStatus,
     lastBody,
     lastError,
@@ -657,6 +701,8 @@ export interface RecoverStalePendingOpts {
 /**
  * Finds pending jobs whose next queue delivery is overdue: initial enqueue dropped,
  * or `msg.retry({ delaySeconds })` never arrived after success/error backoff.
+ * Atomically bumps `updated_at` so repeated recovery scans do not re-enqueue the
+ * same row before the grace window elapses again.
  * Sending another message is safe: {@link startAttempt} only claims `pending` rows.
  */
 export async function recoverStalePendingJobs(
@@ -668,22 +714,28 @@ export async function recoverStalePendingJobs(
   const initialCutoff = nowMs - opts.initialPendingMs;
   const successPathCutoff = nowMs - opts.pendingGraceMs;
   const errorPathCutoff = nowMs - opts.pendingGraceMs - opts.errorRetryUpperBoundMs;
+  const ts = now();
   const result = await db
     .prepare(
-      `SELECT id, customer_id
-       FROM jobs
-       WHERE status = 'pending'
-         AND (
-           (attempts = 0 AND updated_at <= ?)
-           OR (attempts > 0 AND last_error IS NULL
-               AND updated_at <= ? - success_retry_delay_seconds * 1000)
-           OR (attempts > 0 AND last_error IS NOT NULL
-               AND updated_at <= ?)
-         )
-       ORDER BY updated_at ASC
-       LIMIT ?`,
+      `UPDATE jobs
+         SET updated_at = ?
+       WHERE id IN (
+         SELECT id
+         FROM jobs
+         WHERE status = 'pending'
+           AND (
+             (attempts = 0 AND updated_at <= ?)
+             OR (attempts > 0 AND last_error IS NULL
+                 AND updated_at <= ? - success_retry_delay_seconds * 1000)
+             OR (attempts > 0 AND last_error IS NOT NULL
+                 AND updated_at <= ?)
+           )
+         ORDER BY updated_at ASC
+         LIMIT ?
+       )
+      RETURNING id, customer_id`,
     )
-    .bind(initialCutoff, successPathCutoff, errorPathCutoff, safeLimit)
+    .bind(ts, initialCutoff, successPathCutoff, errorPathCutoff, safeLimit)
     .all<RecoveredJobRow>();
   return result.results ?? [];
 }
